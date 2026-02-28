@@ -1,0 +1,831 @@
+-- NovaUI 高级UI库
+-- 作者: 助手
+-- 版本: 1.0
+-- 特性: 现代设计, 圆角, 阴影, 渐变, 可拖动, 可关闭/最小化, 自定义背景图, 完整控件
+
+local NovaUI = {}
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+-- 辅助函数
+local function c3(r,g,b) return Color3.fromRGB(r,g,b) end
+local function dm(scale, offset) return UDim.new(scale, offset) end
+local function dn(xScale, xOffset, yScale, yOffset) return UDim2.new(xScale, xOffset, yScale, yOffset) end
+local function deepCopy(t) local nt = {}; for k,v in pairs(t) do nt[k] = type(v)=="table" and deepCopy(v) or v end; return nt end
+
+-- 默认主题
+NovaUI.Theme = {
+    Background = c3(28, 28, 35),
+    Secondary = c3(38, 38, 45),
+    Accent = c3(100, 150, 255),
+    Text = c3(255,255,255),
+    TextSecondary = c3(200,200,200),
+    Placeholder = c3(150,150,150),
+    Shadow = c3(0,0,0),
+    Success = c3(80,200,120),
+    Warning = c3(255,180,60),
+    Error = c3(255,80,80),
+    Transparency = {
+        Window = 0.05,
+        Element = 0.1,
+        Hover = 0.2,
+    },
+    Font = Enum.Font.Gotham,
+    FontBold = Enum.Font.GothamBold,
+    CornerRadius = UDim.new(0, 8),
+    SmallCorner = UDim.new(0, 4),
+    ShadowSize = 10,
+    AnimationSpeed = 0.2,
+}
+
+-- 拖拽功能
+local function makeDraggable(frame, dragArea)
+    dragArea = dragArea or frame
+    local dragging, startPos, startMousePos
+    dragArea.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            startPos = frame.Position
+            startMousePos = input.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    dragArea.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - startMousePos
+            if dragging then
+                frame.Position = dn(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end
+    end)
+end
+
+-- 创建一个窗口
+function NovaUI:CreateWindow(config)
+    config = config or {}
+    local window = {}
+    window.Title = config.Title or "NovaUI"
+    window.Size = config.Size or dn(0, 600, 0, 400)
+    window.Position = config.Position or dn(0.5, -300, 0.5, -200)
+    window.Theme = config.Theme and deepCopy(config.Theme) or deepCopy(NovaUI.Theme)
+    window.BackgroundImage = config.BackgroundImage
+    window.AllowClose = config.AllowClose == nil and true or config.AllowClose
+    window.AllowMinimize = config.AllowMinimize == nil and true or config.AllowMinimize
+    window.OnClose = config.OnClose or function() end
+    window.OnMinimize = config.OnMinimize or function() end
+    window.OnRestore = config.OnRestore or function() end
+    window.Icon = config.Icon  -- 可选图标ID
+
+    -- 创建GUI容器
+    window.Gui = Instance.new("ScreenGui")
+    window.Gui.Name = "NovaUI_" .. HttpService:GenerateGUID(false)
+    window.Gui.Parent = CoreGui
+    window.Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    if syn and syn.protect_gui then syn.protect_gui(window.Gui) end
+
+    -- 主框架 (带阴影)
+    window.Main = Instance.new("Frame")
+    window.Main.Name = "Window"
+    window.Main.Parent = window.Gui
+    window.Main.BackgroundColor3 = window.Theme.Background
+    window.Main.BackgroundTransparency = window.Theme.Transparency.Window
+    window.Main.BorderSizePixel = 0
+    window.Main.Position = window.Position
+    window.Main.Size = window.Size
+    window.Main.ClipsDescendants = true
+
+    -- 圆角
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = window.Theme.CornerRadius
+    mainCorner.Parent = window.Main
+
+    -- 阴影效果 (使用多个半透明边框或使用ImageLabel)
+    local shadow = Instance.new("ImageLabel")
+    shadow.Name = "Shadow"
+    shadow.Parent = window.Main
+    shadow.BackgroundTransparency = 1
+    shadow.Size = dn(1, window.Theme.ShadowSize*2, 1, window.Theme.ShadowSize*2)
+    shadow.Position = dn(0, -window.Theme.ShadowSize, 0, -window.Theme.ShadowSize)
+    shadow.Image = "rbxassetid://13161078036" -- 阴影图片
+    shadow.ImageColor3 = window.Theme.Shadow
+    shadow.ImageTransparency = 0.5
+    shadow.ZIndex = -1
+
+    -- 背景图片 (如果提供)
+    if window.BackgroundImage then
+        local bg = Instance.new("ImageLabel")
+        bg.Name = "Background"
+        bg.Parent = window.Main
+        bg.BackgroundTransparency = 1
+        bg.Size = dn(1,0,1,0)
+        bg.Image = window.BackgroundImage
+        bg.ScaleType = Enum.ScaleType.Crop
+        bg.ZIndex = 0
+    end
+
+    -- 标题栏 (用于拖拽)
+    window.TitleBar = Instance.new("Frame")
+    window.TitleBar.Name = "TitleBar"
+    window.TitleBar.Parent = window.Main
+    window.TitleBar.BackgroundColor3 = window.Theme.Secondary
+    window.TitleBar.BackgroundTransparency = window.Theme.Transparency.Element
+    window.TitleBar.BorderSizePixel = 0
+    window.TitleBar.Size = dn(1,0,0,30)
+    window.TitleBar.ZIndex = 2
+
+    local titleBarCorner = Instance.new("UICorner")
+    titleBarCorner.CornerRadius = window.Theme.CornerRadius
+    titleBarCorner.Parent = window.TitleBar
+
+    -- 标题文字
+    window.TitleLabel = Instance.new("TextLabel")
+    window.TitleLabel.Parent = window.TitleBar
+    window.TitleLabel.BackgroundTransparency = 1
+    window.TitleLabel.Size = dn(1, -100, 1, 0)
+    window.TitleLabel.Position = dn(0, 10, 0, 0)
+    window.TitleLabel.Font = window.Theme.FontBold
+    window.TitleLabel.Text = window.Title
+    window.TitleLabel.TextColor3 = window.Theme.Text
+    window.TitleLabel.TextSize = 16
+    window.TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    -- 图标 (如果有)
+    if window.Icon then
+        local icon = Instance.new("ImageLabel")
+        icon.Parent = window.TitleBar
+        icon.BackgroundTransparency = 1
+        icon.Size = dn(0,20,0,20)
+        icon.Position = dn(0,10,0,5)
+        icon.Image = window.Icon
+    end
+
+    -- 按钮容器 (右上角)
+    local btnContainer = Instance.new("Frame")
+    btnContainer.Parent = window.TitleBar
+    btnContainer.BackgroundTransparency = 1
+    btnContainer.Size = dn(0, 70, 1, 0)
+    btnContainer.Position = dn(1, -80, 0, 0)
+
+    -- 最小化按钮
+    if window.AllowMinimize then
+        local minimize = Instance.new("TextButton")
+        minimize.Name = "Minimize"
+        minimize.Parent = btnContainer
+        minimize.BackgroundTransparency = 1
+        minimize.Size = dn(0,30,1,0)
+        minimize.Position = dn(0,0,0,0)
+        minimize.Font = Enum.Font.GothamBold
+        minimize.Text = "–"
+        minimize.TextColor3 = window.Theme.Text
+        minimize.TextSize = 20
+        minimize.ZIndex = 3
+        minimize.MouseButton1Click:Connect(function()
+            window:Minimize()
+        end)
+    end
+
+    -- 关闭按钮
+    if window.AllowClose then
+        local close = Instance.new("TextButton")
+        close.Name = "Close"
+        close.Parent = btnContainer
+        close.BackgroundTransparency = 1
+        close.Size = dn(0,30,1,0)
+        close.Position = dn(0, (window.AllowMinimize and 35 or 0), 0, 0)
+        close.Font = Enum.Font.GothamBold
+        close.Text = "×"
+        close.TextColor3 = window.Theme.Error
+        close.TextSize = 24
+        close.ZIndex = 3
+        close.MouseButton1Click:Connect(function()
+            window:Close()
+        end)
+    end
+
+    -- 使标题栏可拖拽
+    makeDraggable(window.Main, window.TitleBar)
+
+    -- 内容区域 (所有标签页将放在这里)
+    window.Content = Instance.new("Frame")
+    window.Content.Name = "Content"
+    window.Content.Parent = window.Main
+    window.Content.BackgroundTransparency = 1
+    window.Content.Size = dn(1, -20, 1, -50)
+    window.Content.Position = dn(0, 10, 0, 40)
+
+    -- 标签页容器
+    window.TabContainer = Instance.new("Frame")
+    window.TabContainer.Parent = window.Content
+    window.TabContainer.BackgroundTransparency = 1
+    window.TabContainer.Size = dn(1, 0, 0, 30)
+
+    -- 标签按钮容器
+    window.TabButtons = Instance.new("ScrollingFrame")
+    window.TabButtons.Parent = window.TabContainer
+    window.TabButtons.BackgroundTransparency = 1
+    window.TabButtons.BorderSizePixel = 0
+    window.TabButtons.Size = dn(1, 0, 1, 0)
+    window.TabButtons.CanvasSize = dn(0, 0, 0, 0)
+    window.TabButtons.ScrollBarThickness = 0
+
+    local tabLayout = Instance.new("UIListLayout")
+    tabLayout.Parent = window.TabButtons
+    tabLayout.FillDirection = Enum.FillDirection.Horizontal
+    tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    tabLayout.Padding = UDim.new(0, 5)
+
+    tabLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        window.TabButtons.CanvasSize = dn(0, tabLayout.AbsoluteContentSize.X, 0, 0)
+    end)
+
+    -- 标签内容区域
+    window.TabContent = Instance.new("Frame")
+    window.TabContent.Parent = window.Content
+    window.TabContent.BackgroundTransparency = 1
+    window.TabContent.Size = dn(1, 0, 1, -40)
+    window.TabContent.Position = dn(0, 0, 0, 35)
+
+    -- 存储标签页
+    window.Tabs = {}
+
+    -- 当前标签
+    window.CurrentTab = nil
+
+    -- 最小化状态
+    window.IsMinimized = false
+    window.OriginalSize = window.Size
+
+    -- 方法: 最小化
+    function window:Minimize()
+        if self.IsMinimized then
+            -- 还原
+            TweenService:Create(self.Main, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = self.OriginalSize}):Play()
+            self.IsMinimized = false
+            self.OnRestore()
+        else
+            -- 最小化到标题栏高度
+            self.OriginalSize = self.Main.Size
+            TweenService:Create(self.Main, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = dn(0, self.OriginalSize.X.Offset, 0, 30)}):Play()
+            self.IsMinimized = true
+            self.OnMinimize()
+        end
+    end
+
+    -- 方法: 关闭
+    function window:Close()
+        self.Gui:Destroy()
+        self.OnClose()
+    end
+
+    -- 方法: 创建标签页
+    function window:CreateTab(name, icon)
+        local tab = {}
+        tab.Name = name
+        tab.Icon = icon
+
+        -- 创建标签按钮
+        local btn = Instance.new("TextButton")
+        btn.Name = "Tab_" .. name
+        btn.Parent = window.TabButtons
+        btn.BackgroundColor3 = window.Theme.Secondary
+        btn.BackgroundTransparency = window.Theme.Transparency.Element
+        btn.BorderSizePixel = 0
+        btn.Size = dn(0, 100, 0, 28)
+        btn.AutoButtonColor = false
+        btn.Font = window.Theme.Font
+        btn.Text = name
+        btn.TextColor3 = window.Theme.Text
+        btn.TextSize = 14
+        btn.ZIndex = 3
+
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = window.Theme.SmallCorner
+        btnCorner.Parent = btn
+
+        -- 悬停效果
+        btn.MouseEnter:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundTransparency = 0}):Play()
+        end)
+        btn.MouseLeave:Connect(function()
+            if window.CurrentTab ~= btn then
+                TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundTransparency = window.Theme.Transparency.Element}):Play()
+            end
+        end)
+
+        -- 创建标签内容容器
+        tab.Container = Instance.new("ScrollingFrame")
+        tab.Container.Parent = window.TabContent
+        tab.Container.BackgroundTransparency = 1
+        tab.Container.BorderSizePixel = 0
+        tab.Container.Size = dn(1,0,1,0)
+        tab.Container.Visible = false
+        tab.Container.CanvasSize = dn(0,0,0,0)
+        tab.Container.ScrollBarThickness = 6
+
+        local contentLayout = Instance.new("UIListLayout")
+        contentLayout.Parent = tab.Container
+        contentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        contentLayout.Padding = UDim.new(0, 10)
+
+        contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            tab.Container.CanvasSize = dn(0,0,0, contentLayout.AbsoluteContentSize.Y + 10)
+        end)
+
+        local contentPadding = Instance.new("UIPadding")
+        contentPadding.Parent = tab.Container
+        contentPadding.PaddingTop = UDim.new(0, 5)
+
+        -- 选中状态
+        btn.MouseButton1Click:Connect(function()
+            if window.CurrentTab then
+                window.CurrentTab.Container.Visible = false
+                TweenService:Create(window.CurrentTab.Button, TweenInfo.new(0.1), {BackgroundTransparency = window.Theme.Transparency.Element}):Play()
+            end
+            window.CurrentTab = tab
+            tab.Container.Visible = true
+            TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundTransparency = 0}):Play()
+        end)
+
+        tab.Button = btn
+
+        -- 如果这是第一个标签，自动选中
+        if #window.Tabs == 0 then
+            window.CurrentTab = tab
+            tab.Container.Visible = true
+            btn.BackgroundTransparency = 0
+        end
+
+        table.insert(window.Tabs, tab)
+
+        -- 返回标签对象，用于添加控件
+        return tab
+    end
+
+    -- 通用控件创建函数
+    local function createBaseElement(parent, height, transparency)
+        local frame = Instance.new("Frame")
+        frame.Parent = parent
+        frame.BackgroundColor3 = window.Theme.Secondary
+        frame.BackgroundTransparency = transparency or window.Theme.Transparency.Element
+        frame.BorderSizePixel = 0
+        frame.Size = dn(1, -20, 0, height or 35)
+        frame.ZIndex = 2
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = window.Theme.SmallCorner
+        corner.Parent = frame
+
+        return frame
+    end
+
+    -- 创建分组框
+    function tab:CreateSection(title)
+        local section = {}
+        section.Title = title
+        section.Buttons = {}
+
+        -- 标题
+        local titleLabel = Instance.new("TextLabel")
+        titleLabel.Parent = self.Container
+        titleLabel.BackgroundTransparency = 1
+        titleLabel.Size = dn(1, -20, 0, 20)
+        titleLabel.Font = window.Theme.FontBold
+        titleLabel.Text = title
+        titleLabel.TextColor3 = window.Theme.TextSecondary
+        titleLabel.TextSize = 14
+        titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+        -- 容器
+        section.Container = Instance.new("Frame")
+        section.Container.Parent = self.Container
+        section.Container.BackgroundTransparency = 1
+        section.Container.Size = dn(1, -20, 0, 0)
+        section.Container.ClipsDescendants = true
+
+        local layout = Instance.new("UIListLayout")
+        layout.Parent = section.Container
+        layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Padding = UDim.new(0, 5)
+
+        -- 返回section对象
+        function section:AddButton(text, callback)
+            local frame = createBaseElement(section.Container, 30)
+            local btn = Instance.new("TextButton")
+            btn.Parent = frame
+            btn.BackgroundTransparency = 1
+            btn.Size = dn(1,0,1,0)
+            btn.Font = window.Theme.Font
+            btn.Text = text
+            btn.TextColor3 = window.Theme.Text
+            btn.TextSize = 14
+            btn.ZIndex = 3
+
+            btn.MouseButton1Click:Connect(callback or function() end)
+
+            -- 悬停效果
+            btn.MouseEnter:Connect(function()
+                TweenService:Create(frame, TweenInfo.new(0.1), {BackgroundTransparency = 0}):Play()
+            end)
+            btn.MouseLeave:Connect(function()
+                TweenService:Create(frame, TweenInfo.new(0.1), {BackgroundTransparency = window.Theme.Transparency.Element}):Play()
+            end)
+
+            return btn
+        end
+
+        function section:AddToggle(text, default, callback)
+            local state = default or false
+            local frame = createBaseElement(section.Container, 30)
+
+            local label = Instance.new("TextLabel")
+            label.Parent = frame
+            label.BackgroundTransparency = 1
+            label.Size = dn(1, -60, 1, 0)
+            label.Position = dn(0, 10, 0, 0)
+            label.Font = window.Theme.Font
+            label.Text = text
+            label.TextColor3 = window.Theme.Text
+            label.TextSize = 14
+            label.TextXAlignment = Enum.TextXAlignment.Left
+
+            local toggleBg = Instance.new("Frame")
+            toggleBg.Parent = frame
+            toggleBg.BackgroundColor3 = window.Theme.Placeholder
+            toggleBg.BorderSizePixel = 0
+            toggleBg.Size = dn(0, 40, 0, 20)
+            toggleBg.Position = dn(1, -50, 0.5, -10)
+            toggleBg.ZIndex = 3
+
+            local toggleCorner = Instance.new("UICorner")
+            toggleCorner.CornerRadius = UDim.new(0, 10)
+            toggleCorner.Parent = toggleBg
+
+            local toggleCircle = Instance.new("Frame")
+            toggleCircle.Parent = toggleBg
+            toggleCircle.BackgroundColor3 = c3(255,255,255)
+            toggleCircle.BorderSizePixel = 0
+            toggleCircle.Size = dn(0, 18, 0, 18)
+            toggleCircle.Position = dn(0, 1, 0.5, -9)
+
+            local circleCorner = Instance.new("UICorner")
+            circleCorner.CornerRadius = UDim.new(0, 9)
+            circleCorner.Parent = toggleCircle
+
+            local function updateVisual()
+                if state then
+                    TweenService:Create(toggleBg, TweenInfo.new(0.2), {BackgroundColor3 = window.Theme.Accent}):Play()
+                    TweenService:Create(toggleCircle, TweenInfo.new(0.2), {Position = dn(0, 21, 0.5, -9)}):Play()
+                else
+                    TweenService:Create(toggleBg, TweenInfo.new(0.2), {BackgroundColor3 = window.Theme.Placeholder}):Play()
+                    TweenService:Create(toggleCircle, TweenInfo.new(0.2), {Position = dn(0, 1, 0.5, -9)}):Play()
+                end
+            end
+            updateVisual()
+
+            local btn = Instance.new("TextButton")
+            btn.Parent = frame
+            btn.BackgroundTransparency = 1
+            btn.Size = dn(1,0,1,0)
+            btn.ZIndex = 4
+
+            btn.MouseButton1Click:Connect(function()
+                state = not state
+                updateVisual()
+                if callback then callback(state) end
+            end)
+
+            return {SetState = function(s) state = s; updateVisual() end, GetState = function() return state end}
+        end
+
+        function section:AddSlider(text, min, max, default, callback)
+            local value = default or min
+            local frame = createBaseElement(section.Container, 40)
+
+            local label = Instance.new("TextLabel")
+            label.Parent = frame
+            label.BackgroundTransparency = 1
+            label.Size = dn(1, -60, 0, 20)
+            label.Position = dn(0, 10, 0, 0)
+            label.Font = window.Theme.Font
+            label.Text = text
+            label.TextColor3 = window.Theme.Text
+            label.TextSize = 14
+            label.TextXAlignment = Enum.TextXAlignment.Left
+
+            local valueLabel = Instance.new("TextLabel")
+            valueLabel.Parent = frame
+            valueLabel.BackgroundTransparency = 1
+            valueLabel.Size = dn(0, 40, 0, 20)
+            valueLabel.Position = dn(1, -50, 0, 0)
+            valueLabel.Font = window.Theme.Font
+            valueLabel.Text = tostring(value)
+            valueLabel.TextColor3 = window.Theme.Accent
+            valueLabel.TextSize = 14
+
+            local bar = Instance.new("Frame")
+            bar.Parent = frame
+            bar.BackgroundColor3 = window.Theme.Placeholder
+            bar.BorderSizePixel = 0
+            bar.Size = dn(1, -80, 0, 6)
+            bar.Position = dn(0, 40, 0, 25)
+
+            local barCorner = Instance.new("UICorner")
+            barCorner.CornerRadius = UDim.new(0, 3)
+            barCorner.Parent = bar
+
+            local fill = Instance.new("Frame")
+            fill.Parent = bar
+            fill.BackgroundColor3 = window.Theme.Accent
+            fill.BorderSizePixel = 0
+            fill.Size = dn(0, 0, 1, 0)
+
+            local fillCorner = Instance.new("UICorner")
+            fillCorner.CornerRadius = UDim.new(0, 3)
+            fillCorner.Parent = fill
+
+            local function updateSlider(val)
+                val = math.clamp(val, min, max)
+                value = val
+                valueLabel.Text = tostring(val)
+                local ratio = (val - min) / (max - min)
+                fill.Size = dn(ratio, 0, 1, 0)
+                if callback then callback(val) end
+            end
+
+            local dragging = false
+            bar.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true
+                    local mousePos = UserInputService:GetMouseLocation()
+                    local barPos = bar.AbsolutePosition.X
+                    local barSize = bar.AbsoluteSize.X
+                    local ratio = (mousePos.X - barPos) / barSize
+                    ratio = math.clamp(ratio, 0, 1)
+                    updateSlider(min + (max - min) * ratio)
+                end
+            end)
+
+            UserInputService.InputEnded:Connect(function(input)
+                if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+                    dragging = false
+                end
+            end)
+
+            UserInputService.InputChanged:Connect(function(input)
+                if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    local mousePos = UserInputService:GetMouseLocation()
+                    local barPos = bar.AbsolutePosition.X
+                    local barSize = bar.AbsoluteSize.X
+                    local ratio = (mousePos.X - barPos) / barSize
+                    ratio = math.clamp(ratio, 0, 1)
+                    updateSlider(min + (max - min) * ratio)
+                end
+            end)
+
+            updateSlider(default or min)
+
+            return {SetValue = updateSlider, GetValue = function() return value end}
+        end
+
+        function section:AddDropdown(text, options, default, callback)
+            local selected = default or options[1] or ""
+            local open = false
+            local frame = createBaseElement(section.Container, 30)
+
+            local label = Instance.new("TextLabel")
+            label.Parent = frame
+            label.BackgroundTransparency = 1
+            label.Size = dn(1, -60, 1, 0)
+            label.Position = dn(0, 10, 0, 0)
+            label.Font = window.Theme.Font
+            label.Text = text
+            label.TextColor3 = window.Theme.Text
+            label.TextSize = 14
+            label.TextXAlignment = Enum.TextXAlignment.Left
+
+            local valueLabel = Instance.new("TextLabel")
+            valueLabel.Parent = frame
+            valueLabel.BackgroundTransparency = 1
+            valueLabel.Size = dn(0, 50, 1, 0)
+            valueLabel.Position = dn(1, -60, 0, 0)
+            valueLabel.Font = window.Theme.Font
+            valueLabel.Text = selected
+            valueLabel.TextColor3 = window.Theme.Accent
+            valueLabel.TextSize = 14
+
+            local arrow = Instance.new("TextLabel")
+            arrow.Parent = frame
+            arrow.BackgroundTransparency = 1
+            arrow.Size = dn(0, 20, 1, 0)
+            arrow.Position = dn(1, -25, 0, 0)
+            arrow.Font = window.Theme.FontBold
+            arrow.Text = "▼"
+            arrow.TextColor3 = window.Theme.Text
+            arrow.TextSize = 14
+
+            local dropdownContainer = Instance.new("Frame")
+            dropdownContainer.Parent = section.Container
+            dropdownContainer.BackgroundColor3 = window.Theme.Secondary
+            dropdownContainer.BackgroundTransparency = 0
+            dropdownContainer.BorderSizePixel = 0
+            dropdownContainer.Size = dn(1, -20, 0, 0)
+            dropdownContainer.Visible = false
+            dropdownContainer.ZIndex = 5
+
+            local dropCorner = Instance.new("UICorner")
+            dropCorner.CornerRadius = window.Theme.SmallCorner
+            dropCorner.Parent = dropdownContainer
+
+            local dropLayout = Instance.new("UIListLayout")
+            dropLayout.Parent = dropdownContainer
+            dropLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+            dropLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            dropLayout.Padding = UDim.new(0, 2)
+
+            local dropPadding = Instance.new("UIPadding")
+            dropPadding.Parent = dropdownContainer
+            dropPadding.PaddingTop = UDim.new(0, 4)
+            dropPadding.PaddingBottom = UDim.new(0, 4)
+
+            dropLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+                dropdownContainer.Size = dn(1, -20, 0, dropLayout.AbsoluteContentSize.Y + 8)
+            end)
+
+            for _, opt in ipairs(options) do
+                local optBtn = Instance.new("TextButton")
+                optBtn.Name = opt
+                optBtn.Parent = dropdownContainer
+                optBtn.BackgroundColor3 = window.Theme.Secondary
+                optBtn.BackgroundTransparency = 0.5
+                optBtn.BorderSizePixel = 0
+                optBtn.Size = dn(1, -10, 0, 25)
+                optBtn.AutoButtonColor = false
+                optBtn.Font = window.Theme.Font
+                optBtn.Text = opt
+                optBtn.TextColor3 = window.Theme.Text
+                optBtn.TextSize = 13
+                optBtn.ZIndex = 6
+
+                local optCorner = Instance.new("UICorner")
+                optCorner.CornerRadius = UDim.new(0, 4)
+                optCorner.Parent = optBtn
+
+                optBtn.MouseEnter:Connect(function()
+                    TweenService:Create(optBtn, TweenInfo.new(0.1), {BackgroundTransparency = 0}):Play()
+                end)
+                optBtn.MouseLeave:Connect(function()
+                    TweenService:Create(optBtn, TweenInfo.new(0.1), {BackgroundTransparency = 0.5}):Play()
+                end)
+
+                optBtn.MouseButton1Click:Connect(function()
+                    selected = opt
+                    valueLabel.Text = selected
+                    dropdownContainer.Visible = false
+                    open = false
+                    arrow.Text = "▼"
+                    if callback then callback(selected) end
+                end)
+            end
+
+            frame.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    open = not open
+                    dropdownContainer.Visible = open
+                    arrow.Text = open and "▲" or "▼"
+                    if open then
+                        dropdownContainer.Position = dn(0, 10, 0, frame.AbsoluteSize.Y + 2)
+                    end
+                end
+            end)
+
+            return {SetOptions = function(newOpts) end, GetSelected = function() return selected end}
+        end
+
+        function section:AddTextbox(text, default, callback)
+            local frame = createBaseElement(section.Container, 30)
+
+            local label = Instance.new("TextLabel")
+            label.Parent = frame
+            label.BackgroundTransparency = 1
+            label.Size = dn(0, 80, 1, 0)
+            label.Position = dn(0, 10, 0, 0)
+            label.Font = window.Theme.Font
+            label.Text = text
+            label.TextColor3 = window.Theme.Text
+            label.TextSize = 14
+            label.TextXAlignment = Enum.TextXAlignment.Left
+
+            local box = Instance.new("TextBox")
+            box.Parent = frame
+            box.BackgroundColor3 = window.Theme.Background
+            box.BackgroundTransparency = 0.3
+            box.BorderSizePixel = 0
+            box.Size = dn(0, 150, 1, -10)
+            box.Position = dn(1, -160, 0, 5)
+            box.Font = window.Theme.Font
+            box.Text = default or ""
+            box.TextColor3 = window.Theme.Text
+            box.PlaceholderText = "输入..."
+            box.PlaceholderColor3 = window.Theme.Placeholder
+            box.TextSize = 14
+            box.ZIndex = 3
+
+            local boxCorner = Instance.new("UICorner")
+            boxCorner.CornerRadius = UDim.new(0, 4)
+            boxCorner.Parent = box
+
+            box.FocusLost:Connect(function()
+                if callback then callback(box.Text) end
+            end)
+
+            return {GetText = function() return box.Text end, SetText = function(t) box.Text = t end}
+        end
+
+        function section:AddKeybind(text, default, callback)
+            local frame = createBaseElement(section.Container, 30)
+            local key = default or Enum.KeyCode.Unknown
+
+            local label = Instance.new("TextLabel")
+            label.Parent = frame
+            label.BackgroundTransparency = 1
+            label.Size = dn(1, -100, 1, 0)
+            label.Position = dn(0, 10, 0, 0)
+            label.Font = window.Theme.Font
+            label.Text = text
+            label.TextColor3 = window.Theme.Text
+            label.TextSize = 14
+            label.TextXAlignment = Enum.TextXAlignment.Left
+
+            local keyBtn = Instance.new("TextButton")
+            keyBtn.Parent = frame
+            keyBtn.BackgroundColor3 = window.Theme.Background
+            keyBtn.BackgroundTransparency = 0.3
+            keyBtn.BorderSizePixel = 0
+            keyBtn.Size = dn(0, 80, 0, 20)
+            keyBtn.Position = dn(1, -90, 0.5, -10)
+            keyBtn.Font = window.Theme.Font
+            keyBtn.Text = key.Name or "None"
+            keyBtn.TextColor3 = window.Theme.Accent
+            keyBtn.TextSize = 13
+            keyBtn.ZIndex = 3
+
+            local keyCorner = Instance.new("UICorner")
+            keyCorner.CornerRadius = UDim.new(0, 4)
+            keyCorner.Parent = keyBtn
+
+            local listening = false
+            keyBtn.MouseButton1Click:Connect(function()
+                listening = true
+                keyBtn.Text = "..."
+            end)
+
+            UserInputService.InputBegan:Connect(function(input, processed)
+                if listening and not processed then
+                    if input.UserInputType == Enum.UserInputType.Keyboard then
+                        key = input.KeyCode
+                        keyBtn.Text = key.Name
+                        listening = false
+                        if callback then callback(key) end
+                    end
+                end
+            end)
+
+            return {GetKey = function() return key end}
+        end
+
+        return section
+    end
+
+    return window
+end
+
+-- 全局HttpGet辅助函数 (用于接入外部API)
+function NovaUI:HttpGet(url, callback)
+    local success, result = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if callback then
+        callback(success, result)
+    end
+    return result
+end
+
+-- 主题设置函数
+function NovaUI:SetTheme(theme)
+    self.Theme = deepCopy(theme)
+end
+
+return NovaUI
