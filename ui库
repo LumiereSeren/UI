@@ -1,11 +1,3 @@
--- =====================================================
--- HoloLib 3.0 - 全息UI库 (内置美化控件)
--- 功能：3D毛玻璃面板、多种美观控件、可自定义主题
--- 控件：标签、按钮、开关、滑块、输入框、图片、视频、音频
--- 特性：拖动、固定、始终面向玩家、高度自适应
--- 版本：3.0
--- =====================================================
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
@@ -17,78 +9,55 @@ local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- ==================== 工具函数 ====================
+
 local function clamp(val, min, max)
     return math.max(min, math.min(max, val))
 end
 
--- 下载远程资源 (需要执行器支持)
-local request = (syn and syn.request) or (http and http.request) or http_request or request
+
+local request = (syn and syn.request) or (http and http.request) or http_request
 local getasset = getcustomasset or getsynasset
 local isfolder = isfolder or function() return false end
 local makefolder = makefolder or function() end
 local writefile = writefile
 
-local HAS_ADVANCED_API = request and getasset and writefile
+local CAN_DOWNLOAD = request and getasset and writefile
 
-if not HAS_ADVANCED_API then
-    warn("HoloLib: 当前执行器缺少必要API，外部资源功能将不可用。")
-end
 
 local CacheFolder = "HoloLibCache"
-if HAS_ADVANCED_API and not isfolder(CacheFolder) then
-    makefolder(CacheFolder)
+if CAN_DOWNLOAD and not isfolder(CacheFolder) then
+    pcall(makefolder, CacheFolder)
 end
 
+
 local function downloadAsset(url, ext)
-    ext = ext or "bin"
-    if not HAS_ADVANCED_API then return nil end
+    if not CAN_DOWNLOAD then return nil end
     local success, res = pcall(function()
         return request({Url = url, Method = "GET"})
     end)
     if success and res.StatusCode == 200 then
         local fileName = CacheFolder .. "/" .. HttpService:GenerateGUID(false) .. "." .. ext
-        writefile(fileName, res.Body)
-        return getasset(fileName)
+        local writeSuccess = pcall(writefile, fileName, res.Body)
+        if writeSuccess then
+            return pcall(getasset, fileName) and getasset(fileName) or nil
+        end
     end
     return nil
 end
 
-local function resolveImage(input)
-    if tonumber(input) then
-        return "rbxassetid://" .. input
-    elseif type(input) == "string" then
-        if string.match(input, "^https?://") then
-            local asset = downloadAsset(input, "png")
-            return asset or ""
-        elseif string.match(input, "^rbxassetid://") or string.match(input, "^rbxasset://") then
-            return input
-        end
+
+local function resolveMedia(input, ext)
+    if type(input) ~= "string" then return "" end
+    
+    if string.match(input, "^https?://") then
+        local asset = downloadAsset(input, ext)
+        return asset or ""  
     end
+    
     return input
 end
 
-local function resolveAudio(input)
-    if tonumber(input) then
-        return "rbxassetid://" .. input
-    elseif type(input) == "string" and string.match(input, "^https?://") then
-        local asset = downloadAsset(input, "mp3")
-        return asset or ""
-    end
-    return input
-end
 
-local function resolveVideo(input)
-    if tonumber(input) then
-        return "rbxassetid://" .. input
-    elseif type(input) == "string" and string.match(input, "^https?://") then
-        local asset = downloadAsset(input, "mp4")
-        return asset or input
-    end
-    return input
-end
-
--- ==================== 默认主题 ====================
 local DefaultTheme = {
     GlassBG = Color3.fromRGB(25, 25, 28),
     GlassTransparency = 0.35,
@@ -103,7 +72,7 @@ local DefaultTheme = {
     ControlCorner = UDim.new(0, 10)
 }
 
--- ==================== 面板类 ====================
+
 local Panel = {}
 Panel.__index = Panel
 
@@ -116,10 +85,9 @@ function Panel.new(title, offset, isMain, theme)
     self.isPinned = false
     self.pinnedPosition = Vector3.new()
     self.currentOffset = offset or CFrame.new(-1.2, -0.2, -3.2)
-    self.connections = {}  -- 需要清理的连接
-    self.controls = {}     -- 存储控件引用（可选）
+    self.connections = {}
+    self.controls = {}
     
-    -- 创建面板部件
     self.Part = Instance.new("Part")
     self.Part.Size = Vector3.new(3.2, 2.8, 0.01)
     self.Part.Anchored = true
@@ -139,7 +107,6 @@ function Panel.new(title, offset, isMain, theme)
     self.Surface.Parent = CoreGui
     table.insert(self.connections, self.Surface)
 
-    -- 主框架
     self.MainFrame = Instance.new("Frame")
     self.MainFrame.Size = UDim2.new(1, 0, 1, 0)
     self.MainFrame.BackgroundColor3 = self.theme.GlassBG
@@ -155,7 +122,6 @@ function Panel.new(title, offset, isMain, theme)
     uiStroke.Thickness = 1.5
     uiStroke.Parent = self.MainFrame
 
-    -- 标题栏
     self.TopBar = Instance.new("Frame")
     self.TopBar.Size = UDim2.new(1, 0, 0, 40)
     self.TopBar.BackgroundTransparency = 1
@@ -183,7 +149,6 @@ function Panel.new(title, offset, isMain, theme)
     pinCorner.CornerRadius = UDim.new(1, 0)
     pinCorner.Parent = self.PinBtn
 
-    -- 固定按钮逻辑
     self.PinBtn.MouseButton1Click:Connect(function()
         self.isPinned = not self.isPinned
         if self.isPinned then
@@ -196,7 +161,6 @@ function Panel.new(title, offset, isMain, theme)
         end
     end)
 
-    -- 拖动逻辑
     local isDragging = false
     local dragStart, dragOffset
     self.DragBar.InputBegan:Connect(function(input)
@@ -222,7 +186,6 @@ function Panel.new(title, offset, isMain, theme)
         end
     end)
 
-    -- 滚动内容区域
     self.Scroll = Instance.new("ScrollingFrame")
     self.Scroll.Size = UDim2.new(1, -30, 1, -55)
     self.Scroll.Position = UDim2.new(0, 15, 0, 40)
@@ -238,7 +201,6 @@ function Panel.new(title, offset, isMain, theme)
     self.Layout.SortOrder = Enum.SortOrder.LayoutOrder
     self.Layout.Parent = self.Scroll
 
-    -- 动态调整面板高度
     self.Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
         local contentHeight = self.Layout.AbsoluteContentSize.Y
         local totalPixelsY = contentHeight + 60
@@ -248,7 +210,6 @@ function Panel.new(title, offset, isMain, theme)
         }):Play()
     end)
 
-    -- 帧更新：跟随相机或固定
     self.followConn = RunService.RenderStepped:Connect(function(dt)
         if not self.isVisible then
             self.Part.CFrame = CFrame.new(0, -9999, 0)
@@ -266,7 +227,6 @@ function Panel.new(title, offset, isMain, theme)
     return self
 end
 
--- 面板方法
 function Panel:SetVisible(state)
     self.isVisible = state
     self.Surface.Enabled = state
@@ -290,13 +250,12 @@ function Panel:Destroy()
     self.connections = {}
 end
 
--- 向面板添加任意Gui元素（用户自定义）
 function Panel:AddElement(element)
     element.Parent = self.Scroll
     return element
 end
 
--- ==================== 内置美化控件 ====================
+
 function Panel:AddLabel(text)
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, 0, 0, 20)
@@ -505,7 +464,8 @@ function Panel:AddInput(placeholder, callback)
     return box
 end
 
-function Panel:AddImage(src, height)
+
+function Panel:AddImage(source, height)
     height = height or 180
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, 0, 0, height)
@@ -517,21 +477,17 @@ function Panel:AddImage(src, height)
     img.Size = UDim2.new(1, 0, 1, 0)
     img.BackgroundTransparency = 1
     img.ScaleType = Enum.ScaleType.Fit
+    img.Image = resolveMedia(source, "png")  
     img.Parent = frame
     local corner = Instance.new("UICorner")
     corner.CornerRadius = self.theme.ControlCorner
     corner.Parent = img
 
-    local resolved = resolveImage(src)
-    if resolved and resolved ~= "" then
-        img.Image = resolved
-    else
-        img.Image = "rbxasset://textures/ui/ImageSet/Placeholder.png"
-    end
     return img
 end
 
-function Panel:AddVideo(src, height)
+
+function Panel:AddVideo(source, height)
     height = height or 180
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, 0, 0, height)
@@ -544,35 +500,30 @@ function Panel:AddVideo(src, height)
     video.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     video.Looped = true
     video.Playing = true
+    video.Video = resolveMedia(source, "mp4")  
     video.Parent = frame
     local corner = Instance.new("UICorner")
     corner.CornerRadius = self.theme.ControlCorner
     corner.Parent = video
 
-    local resolved = resolveVideo(src)
-    if resolved and resolved ~= "" then
-        video.Video = resolved
-    end
     return video
 end
 
-function Panel:AddAudio(src, autoplay, looped)
+
+function Panel:AddAudio(source, autoplay, looped)
     local sound = Instance.new("Sound")
     sound.Volume = 0.5
     sound.Looped = looped or false
+    sound.SoundId = resolveMedia(source, "mp3")  
     sound.Parent = self.Surface
 
-    local resolved = resolveAudio(src)
-    if resolved and resolved ~= "" then
-        sound.SoundId = resolved
-    end
     if autoplay then
         sound:Play()
     end
     return sound
 end
 
--- ==================== 全局库 ====================
+
 local HoloLib = {}
 local AllPanels = {}
 
