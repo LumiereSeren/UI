@@ -473,7 +473,8 @@ do
             end
             for B, C in next, u or {
             } do
-                if B ~= "ThemeTag" then
+                local invalidVideoProperty = r == "VideoFrame" and B == "ScaleType"
+                if B ~= "ThemeTag" and not invalidVideoProperty then
                     x[B] = C
                 end
                 if p.Localization and p.Localization.Enabled and B == "Text" then
@@ -9586,6 +9587,7 @@ do
         end)
         local ae = aa(game:GetService("UserInputService"))
         aa(game:GetService("RunService"))
+        local ContentProviderService = aa(game:GetService("ContentProvider"))
         local af = workspace.CurrentCamera
         local ah = a.load('q')
         local aj = a.load('b')
@@ -10020,6 +10022,13 @@ do
                 end
                 return url
             end
+            local function LoadLocalCustomAsset(path)
+                local loader = getcustomasset or getsynasset or (syn and syn.getcustomasset)
+                if not loader then
+                    error("This environment does not provide getcustomasset/getsynasset")
+                end
+                return loader(path)
+            end
             local selectedBackground = as.GitHubVideoBackground or as.GitHubBackground or as.Background
             local aF = as.GitHubVideoBackground or (typeof(selectedBackground) == "string" and string.match(selectedBackground, "^video:(.+)") or nil)
             if not aF and typeof(selectedBackground) == "string" then
@@ -10072,6 +10081,9 @@ do
                             if type(body) ~= "string" or #body < 32 then
                                 error("The downloaded video is empty")
                             end
+                            if videoExtension == "mp4" and body:sub(5, 8) ~= "ftyp" then
+                                error("The GitHub response is not a valid MP4 file")
+                            end
                             writefile(d, body)
                         end)
                         if not f then
@@ -10080,7 +10092,7 @@ do
                         end
                     end
                     local f, g = pcall(function()
-                        return getcustomasset(d)
+                        return LoadLocalCustomAsset(d)
                     end)
                     if not f then
                         warn("[ WindUI.Window.Background ] Failed to load custom asset: " .. tostring(g))
@@ -10093,7 +10105,6 @@ do
                     BackgroundTransparency = 1,
                     Size = UDim2.new(1, 0, 1, 0),
                     Video = aF,
-                    ScaleType = "Crop",
                     Looped = as.BackgroundVideoLooped,
                     Volume = as.BackgroundVideoVolume,
                 }, {
@@ -10101,9 +10112,6 @@ do
                         CornerRadius = UDim.new(0, as.UICorner),
                     }),
                 })
-                if as.BackgroundVideoPlaying then
-                    aE:Play()
-                end
             elseif b then
                 local d = as.Folder .. "/assets/." .. aj.SanitizeFilename(b) .. GetImageExtension(b)
                 if not isfile(d) or as.RefreshBackground then
@@ -10333,6 +10341,37 @@ do
             as.UIElements.BackgroundMedia = aE
             as.UIElements.WindowShadow = az
             as.UIElements.TopbarFrame = as.UIElements.Main.Main.Topbar
+            if aE and aE:IsA("VideoFrame") and as.BackgroundVideoPlaying then
+                task.defer(function()
+                    task.spawn(function()
+                        local preloadOk, preloadError = pcall(function()
+                            ContentProviderService:PreloadAsync({
+                                aE,
+                            })
+                        end)
+                        if not preloadOk then
+                            warn("[ WindUI.Window.Background ] MP4 preload warning: " .. tostring(preloadError))
+                        end
+                    end)
+                    local deadline = os.clock() + 15
+                    while not aE.IsLoaded and os.clock() < deadline and not as.Destroyed do
+                        task.wait(0.05)
+                    end
+                    if as.Destroyed then
+                        return
+                    end
+                    if not aE.IsLoaded then
+                        warn("[ WindUI.Window.Background ] MP4 was not decoded within 15 seconds")
+                        return
+                    end
+                    local playOk, playError = pcall(function()
+                        aE:Play()
+                    end)
+                    if not playOk then
+                        warn("[ WindUI.Window.Background ] MP4 playback failed: " .. tostring(playError))
+                    end
+                end)
+            end
             aj.AddSignal(as.UIElements.Main.Main.Topbar.Left:GetPropertyChangedSignal("AbsoluteSize"), function()
                 local j = 0
                 local l = as.UIElements.Main.Main.Topbar.Right.UIListLayout.AbsoluteContentSize.X / ar.WindUI.UIScale
@@ -11277,6 +11316,7 @@ local aa = {
     UIScale = 1,
     ConfigManager = nil,
     Version = "0.0.0",
+    BuildVersion = "PY-WindUI-MP4-Fix-2",
     Services = a.load('h'),
     OnThemeChangeFunction = nil,
     cloneref = nil,
@@ -11787,6 +11827,32 @@ local function normalizeGitHubBackgroundUrl(url)
     end
     return url
 end
+local function loadExecutorCustomAsset(path)
+    local loader = getcustomasset or getsynasset or (syn and syn.getcustomasset)
+    if not loader then
+        error("This environment does not provide getcustomasset/getsynasset")
+    end
+    return loader(path)
+end
+local function waitForVideoLoaded(video, timeout)
+    timeout = math.clamp(tonumber(timeout) or 15, 1, 60)
+    local contentProvider = game:GetService("ContentProvider")
+    task.spawn(function()
+        local preloadOk, preloadError = pcall(function()
+            contentProvider:PreloadAsync({
+                video,
+            })
+        end)
+        if not preloadOk then
+            warn("[ WindUI ] MP4 preload warning: " .. tostring(preloadError))
+        end
+    end)
+    local deadline = os.clock() + timeout
+    while not video.IsLoaded and os.clock() < deadline do
+        task.wait(0.05)
+    end
+    return video.IsLoaded
+end
 local function getRemoteImageExtension(url)
     local cleanUrl = url:match("^[^?]+") or url
     local extension = cleanUrl:match("%.([%w]+)$")
@@ -11836,7 +11902,7 @@ function App:SetGitHubBackground(url, transparency, forceRefresh)
         return false, downloadError
     end
     local loaded, customAsset = pcall(function()
-        return getcustomasset(cachePath)
+        return loadExecutorCustomAsset(cachePath)
     end)
     if not loaded then
         warn("[ WindUI ] GitHub background load failed: " .. tostring(customAsset))
@@ -11922,6 +11988,9 @@ function App:SetGitHubVideoBackground(url, options)
             if type(body) ~= "string" or #body < 32 then
                 error("The downloaded video is empty")
             end
+            if extension == ".mp4" and body:sub(5, 8) ~= "ftyp" then
+                error("The GitHub response is not a valid MP4 file")
+            end
             writefile(cachePath, body)
         end
     end)
@@ -11930,7 +11999,7 @@ function App:SetGitHubVideoBackground(url, options)
         return false, downloadError
     end
     local loaded, customAsset = pcall(function()
-        return getcustomasset(cachePath)
+        return loadExecutorCustomAsset(cachePath)
     end)
     if not loaded then
         warn("[ WindUI ] GitHub video load failed: " .. tostring(customAsset))
@@ -11946,7 +12015,6 @@ function App:SetGitHubVideoBackground(url, options)
     video.BackgroundTransparency = 1
     video.Size = UDim2.fromScale(1, 1)
     video.Video = customAsset
-    video.ScaleType = Enum.ScaleType.Crop
     video.Looped = options.Looped ~= false
     video.Volume = math.clamp(tonumber(options.Volume) or 0, 0, 1)
     video.ZIndex = 0
@@ -11957,14 +12025,29 @@ function App:SetGitHubVideoBackground(url, options)
     self.Window.UIElements.BackgroundMedia = video
     self.Window.GitHubVideoBackground = rawUrl
     self.Window.GitHubVideoCachePath = cachePath
+    local videoLoaded = waitForVideoLoaded(video, options.LoadTimeout)
+    if not videoLoaded then
+        local loadError = "MP4 could not be decoded within the loading timeout"
+        warn("[ WindUI ] " .. loadError)
+        if type(options.OnError) == "function" then
+            task.spawn(options.OnError, loadError)
+        end
+        return false, loadError
+    end
     if options.Playing ~= false then
         local played, playError = pcall(function()
             video:Play()
         end)
         if not played then
             warn("[ WindUI ] VideoFrame could not play this custom video: " .. tostring(playError))
+            if type(options.OnError) == "function" then
+                task.spawn(options.OnError, playError)
+            end
             return false, playError
         end
+    end
+    if type(options.OnLoaded) == "function" then
+        task.spawn(options.OnLoaded, video)
     end
     return true, video
 end
@@ -12004,6 +12087,27 @@ function App:SetBackgroundVideoLooped(looped)
         return true
     end
     return false
+end
+function App:GetBackgroundVideoState()
+    local media = self.Window.UIElements.BackgroundMedia
+    if not media or not media:IsA("VideoFrame") then
+        return {
+            Available = false,
+            Loaded = false,
+            Playing = false,
+        }
+    end
+    return {
+        Available = true,
+        Loaded = media.IsLoaded,
+        Playing = media.Playing,
+        Looped = media.Looped,
+        Volume = media.Volume,
+        TimePosition = media.TimePosition,
+        TimeLength = media.TimeLength,
+        Resolution = media.Resolution,
+        Source = self.Window.GitHubVideoBackground,
+    }
 end
 function App:ClearGitHubVideoCache()
     local cachePath = self.Window.GitHubVideoCachePath
