@@ -10812,6 +10812,7 @@ do
                 return ar.WindUI.UIScale
             end
             function as.SetUIScale(p, r)
+                r = math.clamp(tonumber(r) or 1, 0.3, 1)
                 ar.WindUI.UIScale = r
                 al(ar.WindUI.UIScaleObj, 0.2, {
                     Scale = r,
@@ -10827,26 +10828,49 @@ do
             function as.SetCurrentConfig(p, r)
                 as.CurrentConfig = r
             end
-            do
-                local p = 40
-                local r = af.ViewportSize
-                local u = as.UIElements.Main.AbsoluteSize
-                if not as.IsFullscreen and as.AutoScale then
-                    local v = r.X - (p * 2)
-                    local x = r.Y - (p * 2)
-                    local B = v / u.X
-                    local C = x / u.Y
-                    local F = math.min(B, C)
-                    local G = 0.3
-                    local H = 1.0
-                    local J = math.clamp(F, G, H)
-                    local L = as:GetUIScale() or 1
-                    local M = 0.05
-                    if math.abs(J - L) > M then
-                        as:SetUIScale(J)
-                    end
+            local function updateAutomaticScale(instant)
+                if not as.AutoScale or as.IsFullscreen then
+                    return
+                end
+
+                local viewport = af.ViewportSize
+                if viewport.X <= 0 or viewport.Y <= 0 then
+                    return
+                end
+
+                local margin = ae.TouchEnabled and 36 or 40
+                local availableWidth = math.max(viewport.X - margin * 2, 1)
+                local availableHeight = math.max(viewport.Y - margin * 2, 1)
+                local baseWidth = viewport.X * as.Size.X.Scale + as.Size.X.Offset
+                local baseHeight = viewport.Y * as.Size.Y.Scale + as.Size.Y.Offset
+
+                if baseWidth <= 0 or baseHeight <= 0 then
+                    return
+                end
+
+                local widthScale = availableWidth / baseWidth
+                local heightScale = availableHeight / baseHeight
+                local targetScale = math.clamp(math.min(widthScale, heightScale, 1), 0.3, 1)
+
+                ar.WindUI.UIScale = targetScale
+                if instant then
+                    ar.WindUI.UIScaleObj.Scale = targetScale
+                elseif math.abs(ar.WindUI.UIScaleObj.Scale - targetScale) > 0.01 then
+                    al(ar.WindUI.UIScaleObj, 0.2, {
+                        Scale = targetScale,
+                    }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out):Play()
                 end
             end
+
+            as.UpdateAutomaticScale = updateAutomaticScale
+            updateAutomaticScale(true)
+
+            aj.AddSignal(af:GetPropertyChangedSignal("ViewportSize"), function()
+                task.defer(function()
+                    updateAutomaticScale(false)
+                    as:SetToTheCenter()
+                end)
+            end)
             if as.OpenButtonMain and as.OpenButtonMain.Button then
                 aj.AddSignal(as.OpenButtonMain.Button.TextButton.MouseButton1Click, function()
                     as:Open()
@@ -11316,7 +11340,7 @@ local aa = {
     UIScale = 1,
     ConfigManager = nil,
     Version = "0.0.0",
-    BuildVersion = "PY-WindUI-MP4-Fix-2",
+    BuildVersion = "PY-WindUI-AutoScale-Fix-1",
     Services = a.load('h'),
     OnThemeChangeFunction = nil,
     cloneref = nil,
@@ -12223,9 +12247,6 @@ function App:ClearStatus()
         self.StatusTag = nil
     end
     return self
-end
-function App:SetScale(scale)
-    return self.Window:SetUIScale(math.clamp(tonumber(scale) or 1, 0.5, 1.5))
 end
 function App:Center()
     self.Window:SetToTheCenter()
