@@ -9101,7 +9101,7 @@ do
         local af = a.load('b')
         local ah = af.New
         local aj = af.Tween
-        function ae.new(ak, al, am)
+        function ae.new(ak, al, am, initialQuery)
             local an = {
                 IconSize = 18,
                 Padding = 14,
@@ -9525,6 +9525,17 @@ do
             af.AddSignal(ao:GetPropertyChangedSignal("Text"), function()
                 an:Search(ao.Text)
             end)
+            function an.SetQuery(au, av)
+                ao.Text = tostring(av or "")
+                an:Search(ao.Text)
+                return an
+            end
+            function an.Focus(au)
+                task.defer(function()
+                    ao:CaptureFocus()
+                end)
+                return an
+            end
             af.AddSignal(aq.UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
                 aj(aq, 0.06, {
                     Size = UDim2.new(1, 0, 0, math.clamp(aq.UIListLayout.AbsoluteContentSize.Y + (an.Padding * 2), 0, an.MaxHeight)),
@@ -9554,6 +9565,9 @@ do
                 an:Close()
             end)
             an:Open()
+            if initialQuery and tostring(initialQuery) ~= "" then
+                an:SetQuery(initialQuery)
+            end
             return an
         end
         return ae
@@ -9603,6 +9617,9 @@ do
                 Radius = ar.Radius or 16,
                 Transparent = ar.Transparent or false,
                 HideSearchBar = ar.HideSearchBar ~= false,
+                TopbarSearchEnabled = ar.TopbarSearchEnabled ~= false,
+                TopbarSearchWidth = ar.TopbarSearchWidth or 150,
+                TopbarSearchPlaceholder = ar.TopbarSearchPlaceholder or "搜索功能...",
                 ScrollBarEnabled = ar.ScrollBarEnabled or false,
                 SideBarWidth = ar.SideBarWidth or 200,
                 Acrylic = ar.Acrylic or false,
@@ -11051,32 +11068,99 @@ do
                     C = H
                 end
             end)
+            local SearchModule = a.load('X')
+            local searchPopup
+            local searchOpening = false
+            function as.OpenSearch(G, H)
+                if searchPopup then
+                    searchPopup:SetQuery(H)
+                    searchPopup:Focus()
+                    return searchPopup
+                end
+                if searchOpening then
+                    return nil
+                end
+                searchOpening = true
+                searchPopup = SearchModule.new(as.TabModule, as.UIElements.Main, function()
+                    searchOpening = false
+                    searchPopup = nil
+                    if as.Resizable then
+                        as.CanResize = true
+                    end
+                    al(ay, 0.1, {
+                        ImageTransparency = 1,
+                    }):Play()
+                    ay.Active = false
+                end, H)
+                al(ay, 0.1, {
+                    ImageTransparency = 0.65,
+                }):Play()
+                ay.Active = true
+                as.CanResize = false
+                searchOpening = false
+                searchPopup:Focus()
+                return searchPopup
+            end
+            if as.TopbarSearchEnabled then
+                local searchIcon = aj.Image("search", "TopbarSearch", 0, as.Folder, "WindowTopbarIcon", true, true, "WindowTopbarButtonIcon")
+                searchIcon.Size = UDim2.fromOffset(15, 15)
+                searchIcon.ImageLabel.ImageTransparency = 0.35
+                local searchInput = ak("TextBox", {
+                    Size = UDim2.new(1, -37, 1, 0),
+                    BackgroundTransparency = 1,
+                    ClearTextOnFocus = false,
+                    Text = "",
+                    PlaceholderText = as.TopbarSearchPlaceholder,
+                    TextXAlignment = "Left",
+                    TextTruncate = "AtEnd",
+                    TextSize = 13,
+                    FontFace = Font.new(aj.Font, Enum.FontWeight.Medium),
+                    ThemeTag = {
+                        TextColor3 = "WindowTopbarTitle",
+                        PlaceholderColor3 = "WindowTopbarTitle",
+                    },
+                })
+                searchInput.PlaceholderColor3 = Color3.fromRGB(145, 145, 150)
+                local searchBox = aj.NewRoundFrame(9, "Squircle", {
+                    Size = UDim2.fromOffset(as.TopbarSearchWidth, 30),
+                    Parent = as.UIElements.Main.Main.Topbar.Left,
+                    LayoutOrder = 3,
+                    ThemeTag = {
+                        ImageColor3 = "Text",
+                    },
+                    ImageTransparency = 0.94,
+                }, {
+                    ak("UIListLayout", {
+                        FillDirection = "Horizontal",
+                        VerticalAlignment = "Center",
+                        Padding = UDim.new(0, 8),
+                    }),
+                    ak("UIPadding", {
+                        PaddingLeft = UDim.new(0, 10),
+                        PaddingRight = UDim.new(0, 8),
+                    }),
+                    searchIcon,
+                    searchInput,
+                })
+                as.UIElements.TopbarSearch = searchBox
+                as.UIElements.TopbarSearchInput = searchInput
+                aj.AddSignal(searchInput.Focused, function()
+                    as:OpenSearch(searchInput.Text)
+                end)
+                aj.AddSignal(searchInput:GetPropertyChangedSignal("Text"), function()
+                    if searchPopup then
+                        searchPopup:SetQuery(searchInput.Text)
+                    elseif searchInput:IsFocused() and searchInput.Text ~= "" then
+                        as:OpenSearch(searchInput.Text)
+                    end
+                end)
+            end
             if not as.HideSearchBar then
-                local G = a.load('X')
-                local H = false
                 local J = am("Search", "search", as.UIElements.SideBarContainer, true)
                 J.Size = UDim2.new(1, -as.UIPadding / 2, 0, 39)
                 J.Position = UDim2.new(0, as.UIPadding / 2, 0, 0)
                 aj.AddSignal(J.MouseButton1Click, function()
-                    if H then
-                        return 
-                    end
-                    G.new(as.TabModule, as.UIElements.Main, function()
-                        H = false
-                        if as.Resizable then
-                            as.CanResize = true
-                        end
-                        al(ay, 0.1, {
-                            ImageTransparency = 1,
-                        }):Play()
-                        ay.Active = false
-                    end)
-                    al(ay, 0.1, {
-                        ImageTransparency = 0.65,
-                    }):Play()
-                    ay.Active = true
-                    H = true
-                    as.CanResize = false
+                    as:OpenSearch("")
                 end)
             end
             function as.DisableTopbarButtons(G, H)
