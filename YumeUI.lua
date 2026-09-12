@@ -1,5 +1,5 @@
 --[[
-    YumeUI 1.0.0
+    YumeUI 1.1.0
     A standalone anime-inspired Roblox interface library.
 
     This file only defines and returns the library. It never creates a window
@@ -18,8 +18,8 @@ local LocalPlayer = Players.LocalPlayer
 
 local YumeUI = {
     Name = "YumeUI",
-    Version = "1.0.0",
-    Build = "YUME-ORIGINAL-1",
+    Version = "1.1.0",
+    Build = "YUME-ORIGINAL-2-MINIDOCK",
 }
 
 local App = {}
@@ -374,6 +374,7 @@ function App:_buildWindow()
         BackgroundColor3 = theme.Surface,
         BackgroundTransparency = 0.14,
         BorderSizePixel = 0,
+        Active = true,
         Parent = self._root,
     })
     addCorner(self._header, 18)
@@ -502,39 +503,323 @@ function App:_buildWindow()
         Parent = self._root,
     })
 
-    self._openOrb = create("TextButton", {
-        Name = "OpenYume",
-        AnchorPoint = Vector2.new(1, 1),
-        Position = UDim2.new(1, -22, 1, -24),
-        Size = UDim2.fromOffset(54, 54),
-        BackgroundColor3 = theme.Accent,
+    self:_buildMinimizeDock()
+
+    self:_createAmbientStars()
+end
+
+function App:_buildMinimizeDock()
+    local rawOptions = self._config.Minimize
+    local options = type(rawOptions) == "table" and rawOptions or {}
+    local showTitle = options.ShowTitle ~= false
+    local title = tostring(options.Title or self._config.Title or "YumeUI")
+    local dockWidth = showTitle
+        and math.clamp(textWidth(title, 12, Enum.Font.GothamBold) + 116, 176, 248)
+        or 122
+
+    self._miniEnabled = rawOptions ~= false and options.Enabled ~= false
+    self._miniDraggable = options.Draggable ~= false
+    self._miniBaseTransparency = 0.055
+
+    self._miniDock = create("Frame", {
+        Name = "YumeMinimizeDock",
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = typeof(options.Position) == "UDim2"
+            and options.Position
+            or UDim2.new(0.5, 0, 0, 30),
+        Size = UDim2.fromOffset(dockWidth, 48),
+        BackgroundColor3 = self._theme.Background,
+        BackgroundTransparency = self._miniBaseTransparency,
         BorderSizePixel = 0,
-        AutoButtonColor = false,
-        Text = self._config.LogoText or "夢",
-        TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 18,
-        Font = Enum.Font.GothamBold,
+        Active = true,
         Visible = false,
         ZIndex = 90,
         Parent = self._screen,
     })
-    addCorner(self._openOrb, 18)
-    local orbStroke = addStroke(self._openOrb, theme.Accent2, 0.18, 2)
-    local orbGradient = makeGradient(self._openOrb, theme.Accent, theme.Accent2, 45)
-    table.insert(self._accentObjects, {Object = self._openOrb, Property = "BackgroundColor3", Slot = 1})
-    table.insert(self._accentObjects, {Object = orbStroke, Property = "Color", Slot = 2})
-    table.insert(self._accentGradients, orbGradient)
-    self:_connect(self._openOrb.Activated, function()
+    addCorner(self._miniDock, 16)
+    local dockStroke = addStroke(self._miniDock, self._theme.Accent, 0.08, 1.5)
+    local dockStrokeGradient = makeGradient(dockStroke, self._theme.Accent, self._theme.Accent2, 0)
+    table.insert(self._accentGradients, dockStrokeGradient)
+
+    local shadow = create("Frame", {
+        Position = UDim2.fromOffset(0, 6),
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 0.52,
+        BorderSizePixel = 0,
+        ZIndex = 89,
+        Parent = self._miniDock,
+    })
+    addCorner(shadow, 16)
+
+    local tint = create("Frame", {
+        Name = "Tint",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 0.9,
+        BorderSizePixel = 0,
+        ZIndex = 91,
+        Parent = self._miniDock,
+    })
+    addCorner(tint, 16)
+    local tintGradient = makeGradient(
+        tint,
+        self._theme.Accent,
+        self._theme.Accent2,
+        10,
+        NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.72),
+            NumberSequenceKeypoint.new(0.55, 0.94),
+            NumberSequenceKeypoint.new(1, 0.8),
+        })
+    )
+    table.insert(self._accentGradients, tintGradient)
+
+    self._miniScale = create("UIScale", {
+        Scale = 1,
+        Parent = self._miniDock,
+    })
+
+    local grip = create("TextButton", {
+        Name = "DragGrip",
+        Position = UDim2.fromOffset(5, 5),
+        Size = UDim2.fromOffset(32, 38),
+        BackgroundColor3 = self._theme.SurfaceSoft,
+        BackgroundTransparency = self._miniDraggable and 0.36 or 1,
+        BorderSizePixel = 0,
+        AutoButtonColor = false,
+        Text = "",
+        Active = self._miniDraggable,
+        ZIndex = 94,
+        Parent = self._miniDock,
+    })
+    addCorner(grip, 11)
+
+    if self._miniDraggable then
+        for row = 0, 2 do
+            for column = 0, 1 do
+                local dot = create("Frame", {
+                    Position = UDim2.fromOffset(11 + column * 7, 11 + row * 7),
+                    Size = UDim2.fromOffset(3, 3),
+                    BackgroundColor3 = self._theme.Muted,
+                    BackgroundTransparency = 0.22,
+                    BorderSizePixel = 0,
+                    ZIndex = 95,
+                    Parent = grip,
+                })
+                addCorner(dot, 9)
+            end
+        end
+    end
+
+    local divider = create("Frame", {
+        Position = UDim2.fromOffset(42, 10),
+        Size = UDim2.fromOffset(1, 28),
+        BackgroundColor3 = self._theme.Stroke,
+        BackgroundTransparency = 0.52,
+        BorderSizePixel = 0,
+        ZIndex = 93,
+        Parent = self._miniDock,
+    })
+    divider.Visible = self._miniDraggable
+
+    local restore = create("TextButton", {
+        Name = "Restore",
+        Position = UDim2.fromOffset(self._miniDraggable and 44 or 4, 4),
+        Size = UDim2.new(1, self._miniDraggable and -48 or -8, 1, -8),
+        BackgroundColor3 = self._theme.SurfaceSoft,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 94,
+        Parent = self._miniDock,
+    })
+    addCorner(restore, 12)
+
+    local logo = create("Frame", {
+        AnchorPoint = Vector2.new(0, 0.5),
+        Position = UDim2.new(0, 5, 0.5, 0),
+        Size = UDim2.fromOffset(30, 30),
+        BackgroundColor3 = self._theme.Accent,
+        BorderSizePixel = 0,
+        ZIndex = 95,
+        Parent = restore,
+    })
+    addCorner(logo, 10)
+    local logoGradient = makeGradient(logo, self._theme.Accent, self._theme.Accent2, 45)
+    table.insert(self._accentObjects, {Object = logo, Property = "BackgroundColor3", Slot = 1})
+    table.insert(self._accentGradients, logoGradient)
+    create("TextLabel", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Text = self._config.LogoText or "夢",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 13,
+        Font = Enum.Font.GothamBold,
+        ZIndex = 96,
+        Parent = logo,
+    })
+
+    if showTitle then
+        self._miniTitle = create("TextLabel", {
+            Position = UDim2.fromOffset(43, 5),
+            Size = UDim2.new(1, -68, 0, 17),
+            BackgroundTransparency = 1,
+            Text = title,
+            TextColor3 = self._theme.Text,
+            TextSize = 12,
+            Font = Enum.Font.GothamBold,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            ZIndex = 95,
+            Parent = restore,
+        })
+        create("TextLabel", {
+            Position = UDim2.fromOffset(43, 22),
+            Size = UDim2.new(1, -68, 0, 13),
+            BackgroundTransparency = 1,
+            Text = "点击恢复界面",
+            TextColor3 = self._theme.Muted,
+            TextSize = 8,
+            Font = Enum.Font.GothamMedium,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            ZIndex = 95,
+            Parent = restore,
+        })
+    end
+
+    create("TextLabel", {
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -5, 0.5, 0),
+        Size = UDim2.fromOffset(18, 24),
+        BackgroundTransparency = 1,
+        Text = "›",
+        TextColor3 = self._theme.Accent2,
+        TextSize = 20,
+        Font = Enum.Font.GothamBold,
+        ZIndex = 95,
+        Parent = restore,
+    })
+
+    self:_connect(restore.Activated, function()
         self:show()
     end)
-    self:_connect(self._openOrb.MouseEnter, function()
-        tween(self._openOrb, 0.18, {Size = UDim2.fromOffset(59, 59)}, Enum.EasingStyle.Back)
+    self:_connect(restore.MouseEnter, function()
+        tween(restore, 0.14, {BackgroundTransparency = 0.72})
+        tween(self._miniScale, 0.16, {Scale = 1.035}, Enum.EasingStyle.Back)
     end)
-    self:_connect(self._openOrb.MouseLeave, function()
-        tween(self._openOrb, 0.18, {Size = UDim2.fromOffset(54, 54)})
+    self:_connect(restore.MouseLeave, function()
+        tween(restore, 0.14, {BackgroundTransparency = 1})
+        tween(self._miniScale, 0.16, {Scale = 1})
     end)
 
-    self:_createAmbientStars()
+    if self._miniDraggable then
+        self:_installMinimizeDockDrag(grip)
+    end
+end
+
+function App:_installMinimizeDockDrag(grip)
+    local dragging = false
+    local moved = false
+    local dragStart
+    local startPosition
+
+    self:_connect(grip.InputBegan, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            moved = false
+            dragStart = input.Position
+            startPosition = self._miniDock.Position
+            tween(grip, 0.12, {BackgroundTransparency = 0.12})
+        end
+    end)
+    self:_connect(UserInputService.InputChanged, function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            if delta.Magnitude >= 4 then
+                moved = true
+            end
+            self._miniDock.Position = UDim2.new(
+                startPosition.X.Scale,
+                startPosition.X.Offset + delta.X,
+                startPosition.Y.Scale,
+                startPosition.Y.Offset + delta.Y
+            )
+        end
+    end)
+    self:_connect(UserInputService.InputEnded, function(input)
+        if not dragging then
+            return
+        end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+        dragging = false
+        tween(grip, 0.12, {BackgroundTransparency = 0.36})
+        if not moved then
+            return
+        end
+
+        local camera = Workspace.CurrentCamera
+        if not camera then
+            return
+        end
+        local viewport = camera.ViewportSize
+        local size = self._miniDock.AbsoluteSize
+        local center = self._miniDock.AbsolutePosition + size / 2
+        local halfWidth = size.X / 2
+        local halfHeight = size.Y / 2
+        local targetX = center.X < viewport.X / 2
+            and halfWidth + 12
+            or viewport.X - halfWidth - 12
+        local targetY = math.clamp(center.Y, halfHeight + 12, viewport.Y - halfHeight - 12)
+        tween(
+            self._miniDock,
+            0.28,
+            {Position = UDim2.fromOffset(targetX, targetY)},
+            Enum.EasingStyle.Back
+        )
+    end)
+end
+
+function App:_setMinimizeDockVisible(visible, instant)
+    if not self._miniDock or not self._miniEnabled then
+        return
+    end
+    if visible then
+        self._miniDock.Visible = true
+        self._miniDock.BackgroundTransparency = 0.5
+        self._miniScale.Scale = 0.82
+        if instant then
+            self._miniDock.BackgroundTransparency = self._miniBaseTransparency
+            self._miniScale.Scale = 1
+        else
+            tween(self._miniDock, 0.2, {BackgroundTransparency = self._miniBaseTransparency})
+            tween(self._miniScale, 0.28, {Scale = 1}, Enum.EasingStyle.Back)
+        end
+        return
+    end
+
+    if instant then
+        self._miniDock.Visible = false
+        self._miniScale.Scale = 1
+        return
+    end
+    local animation = tween(self._miniScale, 0.16, {Scale = 0.82})
+    tween(self._miniDock, 0.16, {BackgroundTransparency = 0.5})
+    if animation then
+        animation.Completed:Connect(function()
+            if self._visible and self._miniDock then
+                self._miniDock.Visible = false
+                self._miniScale.Scale = 1
+            end
+        end)
+    end
 end
 
 function App:_createHeaderButton(symbol, rightOffset, callback)
@@ -2314,7 +2599,7 @@ function App:show()
         return self
     end
     self._visible = true
-    self._openOrb.Visible = false
+    self:_setMinimizeDockVisible(false, false)
     self._root.Visible = true
     self._shadow.Visible = true
     self._root.BackgroundTransparency = 1
@@ -2346,7 +2631,7 @@ function App:hide()
             if not self._visible and self._root then
                 self._root.Visible = false
                 self._shadow.Visible = false
-                self._openOrb.Visible = true
+                self:_setMinimizeDockVisible(true, false)
             end
         end)
     end
