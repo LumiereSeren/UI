@@ -1,5 +1,5 @@
 --[[
-    YumeUI 1.1.0
+    YumeUI 1.1.1
     A standalone anime-inspired Roblox interface library.
 
     This file only defines and returns the library. It never creates a window
@@ -18,8 +18,8 @@ local LocalPlayer = Players.LocalPlayer
 
 local YumeUI = {
     Name = "YumeUI",
-    Version = "1.1.0",
-    Build = "YUME-ORIGINAL-2-MINIDOCK",
+    Version = "1.1.1",
+    Build = "YUME-ORIGINAL-3-SCROLLFIX",
 }
 
 local App = {}
@@ -183,11 +183,42 @@ local function getGuiParent()
 end
 
 local function setCanvasFromLayout(scroller, layout, extra)
-    local function update()
-        scroller.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + (extra or 0))
+    local connections = {}
+    local queued = false
+    local alive = true
+
+    local function applySize()
+        if not alive or not scroller.Parent or not layout.Parent then
+            return
+        end
+        local contentHeight = math.ceil(layout.AbsoluteContentSize.Y + (extra or 0))
+        scroller.CanvasSize = UDim2.fromOffset(0, math.max(contentHeight, 0))
     end
-    update()
-    return layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(update)
+
+    local function queueUpdate()
+        if queued or not alive then
+            return
+        end
+        queued = true
+        task.defer(function()
+            RunService.Heartbeat:Wait()
+            queued = false
+            applySize()
+        end)
+    end
+
+    table.insert(connections, layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(queueUpdate))
+    table.insert(connections, scroller:GetPropertyChangedSignal("AbsoluteSize"):Connect(queueUpdate))
+    table.insert(connections, scroller.ChildAdded:Connect(queueUpdate))
+    table.insert(connections, scroller.ChildRemoved:Connect(queueUpdate))
+    queueUpdate()
+
+    return function()
+        alive = false
+        for _, connection in ipairs(connections) do
+            connection:Disconnect()
+        end
+    end
 end
 
 local function textWidth(text, size, font)
@@ -1740,6 +1771,11 @@ function App:page(id, options)
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.None,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        ScrollingEnabled = true,
+        Active = true,
+        ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
         ScrollBarThickness = 3,
         ScrollBarImageColor3 = self._theme.Accent,
         Visible = false,
@@ -1803,6 +1839,7 @@ function App:selectPage(id)
 end
 
 function Page:section(title, description)
+    local headerHeight = description and 47 or 32
     local section = setmetatable({
         App = self.App,
         Page = self,
@@ -1812,13 +1849,13 @@ function Page:section(title, description)
     section.Frame = create("Frame", {
         Name = "Section_" .. sanitize(section.Title),
         Size = UDim2.new(1, -2, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
+        AutomaticSize = Enum.AutomaticSize.None,
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         Parent = self.Scroller,
     })
     section.Header = create("Frame", {
-        Size = UDim2.new(1, 0, 0, description and 47 or 32),
+        Size = UDim2.new(1, 0, 0, headerHeight),
         BackgroundTransparency = 1,
         Parent = section.Frame,
     })
@@ -1848,17 +1885,39 @@ function Page:section(title, description)
         })
     end
     section.List = create("Frame", {
-        Position = UDim2.fromOffset(0, description and 47 or 32),
+        Position = UDim2.fromOffset(0, headerHeight),
         Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
+        AutomaticSize = Enum.AutomaticSize.None,
         BackgroundTransparency = 1,
         Parent = section.Frame,
     })
-    create("UIListLayout", {
+    section.Layout = create("UIListLayout", {
         Padding = UDim.new(0, 7),
         SortOrder = Enum.SortOrder.LayoutOrder,
         Parent = section.List,
     })
+
+    local sizeUpdateQueued = false
+    local function updateSectionSize()
+        if sizeUpdateQueued or not section.Frame.Parent then
+            return
+        end
+        sizeUpdateQueued = true
+        task.defer(function()
+            sizeUpdateQueued = false
+            if not section.Frame.Parent or not section.Layout.Parent then
+                return
+            end
+            local listHeight = math.ceil(section.Layout.AbsoluteContentSize.Y)
+            section.List.Size = UDim2.new(1, 0, 0, listHeight)
+            section.Frame.Size = UDim2.new(1, -2, 0, headerHeight + listHeight)
+        end)
+    end
+    self.App:_connect(section.Layout:GetPropertyChangedSignal("AbsoluteContentSize"), updateSectionSize)
+    self.App:_connect(section.List.ChildAdded, updateSectionSize)
+    self.App:_connect(section.List.ChildRemoved, updateSectionSize)
+    updateSectionSize()
+
     table.insert(self.Sections, section)
     return section
 end
