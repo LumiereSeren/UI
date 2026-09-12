@@ -9606,7 +9606,13 @@ do
                 Folder = ar.Folder,
                 Resizable = ar.Resizable ~= false,
                 Background = ar.Background,
+                GitHubBackground = ar.GitHubBackground,
+                GitHubVideoBackground = ar.GitHubVideoBackground,
+                RefreshBackground = ar.RefreshBackground or false,
                 BackgroundImageTransparency = ar.BackgroundImageTransparency or 0,
+                BackgroundVideoLooped = ar.BackgroundVideoLooped ~= false,
+                BackgroundVideoVolume = math.clamp(tonumber(ar.BackgroundVideoVolume) or 0, 0, 1),
+                BackgroundVideoPlaying = ar.BackgroundVideoPlaying ~= false,
                 ShadowTransparency = ar.ShadowTransparency or 0.7,
                 User = ar.User or {
                 },
@@ -10004,8 +10010,28 @@ do
             local aC
             local aD = false
             local aE
-            local aF = typeof(as.Background) == "string" and string.match(as.Background, "^video:(.+)") or nil
-            local b = typeof(as.Background) == "string" and not aF and string.match(as.Background, "^https?://.+") or nil
+            local function NormalizeGitHubImageUrl(url)
+                if type(url) ~= "string" then
+                    return url
+                end
+                local owner, repository, branch, path = url:match("^https://github%.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$")
+                if owner then
+                    return string.format("https://raw.githubusercontent.com/%s/%s/%s/%s", owner, repository, branch, path)
+                end
+                return url
+            end
+            local selectedBackground = as.GitHubVideoBackground or as.GitHubBackground or as.Background
+            local aF = as.GitHubVideoBackground or (typeof(selectedBackground) == "string" and string.match(selectedBackground, "^video:(.+)") or nil)
+            if not aF and typeof(selectedBackground) == "string" then
+                local extension = (selectedBackground:match("^[^?]+") or selectedBackground):match("%.([%w]+)$")
+                extension = extension and extension:lower()
+                if extension == "webm" or extension == "mp4" then
+                    aF = selectedBackground
+                end
+            end
+            aF = NormalizeGitHubImageUrl(aF)
+            local b = typeof(selectedBackground) == "string" and not aF and string.match(selectedBackground, "^https?://.+") or nil
+            b = NormalizeGitHubImageUrl(b)
             local function GetImageExtension(d)
                 local f = d:match("%.(%w+)$") or d:match("%.(%w+)%?")
                 if f then
@@ -10016,20 +10042,37 @@ do
                 end
                 return ".png"
             end
-            if typeof(as.Background) == "string" and aF then
+            if aF then
                 aD = true
                 if string.find(aF, "http") then
-                    local d = as.Folder .. "/assets/." .. aj.SanitizeFilename(aF) .. ".webm"
-                    if not isfile(d) then
+                    local videoExtension = (aF:match("^[^?]+") or aF):match("%.([%w]+)$")
+                    videoExtension = videoExtension and videoExtension:lower() or "webm"
+                    if videoExtension ~= "webm" and videoExtension ~= "mp4" then
+                        videoExtension = "webm"
+                    end
+                    local d = as.Folder .. "/assets/." .. aj.SanitizeFilename(aF) .. "." .. videoExtension
+                    if not isfile(d) or as.RefreshBackground then
                         local f, g = pcall(function()
-                            local f = aj.Request({
-                                Url = aF,
-                                Method = "GET",
-                                Headers = {
-                                    ["User-Agent"] = "Roblox/Exploit",
-                                },
-                            })
-                            writefile(d, f.Body)
+                            local body
+                            if aj.Request then
+                                local response = aj.Request({
+                                    Url = aF,
+                                    Method = "GET",
+                                    Headers = {
+                                        ["User-Agent"] = "WindUI-GitHub-Video",
+                                    },
+                                })
+                                if response.StatusCode and response.StatusCode >= 400 then
+                                    error("HTTP " .. tostring(response.StatusCode))
+                                end
+                                body = response.Body
+                            else
+                                body = game:HttpGet(aF)
+                            end
+                            if type(body) ~= "string" or #body < 32 then
+                                error("The downloaded video is empty")
+                            end
+                            writefile(d, body)
                         end)
                         if not f then
                             warn("[ WindUI.Window.Background ] Failed to download video: " .. tostring(g))
@@ -10050,17 +10093,20 @@ do
                     BackgroundTransparency = 1,
                     Size = UDim2.new(1, 0, 1, 0),
                     Video = aF,
-                    Looped = true,
-                    Volume = 0,
+                    ScaleType = "Crop",
+                    Looped = as.BackgroundVideoLooped,
+                    Volume = as.BackgroundVideoVolume,
                 }, {
                     ak("UICorner", {
                         CornerRadius = UDim.new(0, as.UICorner),
                     }),
                 })
-                aE:Play()
+                if as.BackgroundVideoPlaying then
+                    aE:Play()
+                end
             elseif b then
                 local d = as.Folder .. "/assets/." .. aj.SanitizeFilename(b) .. GetImageExtension(b)
-                if not isfile(d) then
+                if not isfile(d) or as.RefreshBackground then
                     local f, g = pcall(function()
                         local f = aj.Request({
                             Url = b,
@@ -11729,6 +11775,242 @@ function App:SetBackgroundImage(image, transparency)
     if transparency ~= nil then
         self:SetBackgroundTransparency(transparency)
     end
+    return self
+end
+local function normalizeGitHubBackgroundUrl(url)
+    if type(url) ~= "string" then
+        return nil
+    end
+    local owner, repository, branch, path = url:match("^https://github%.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$")
+    if owner then
+        return string.format("https://raw.githubusercontent.com/%s/%s/%s/%s", owner, repository, branch, path)
+    end
+    return url
+end
+local function getRemoteImageExtension(url)
+    local cleanUrl = url:match("^[^?]+") or url
+    local extension = cleanUrl:match("%.([%w]+)$")
+    extension = extension and extension:lower() or "png"
+    if extension ~= "png" and extension ~= "jpg" and extension ~= "jpeg" and extension ~= "webp" then
+        extension = "png"
+    end
+    return "." .. extension
+end
+function App:SetGitHubBackground(url, transparency, forceRefresh)
+    local rawUrl = normalizeGitHubBackgroundUrl(url)
+    if not rawUrl or not rawUrl:match("^https://") then
+        warn("[ WindUI ] Invalid GitHub background URL")
+        return false, "Invalid GitHub background URL"
+    end
+    local assetFolder = (self.Window.Folder or "WindUI") .. "/assets"
+    if not isfolder(assetFolder) then
+        makefolder(assetFolder)
+    end
+    local cachePath = assetFolder .. "/github_" .. self.Library.Creator.SanitizeFilename(rawUrl) .. getRemoteImageExtension(rawUrl)
+    local downloaded, downloadError = pcall(function()
+        if forceRefresh or not isfile(cachePath) then
+            local body
+            if self.Library.Creator.Request then
+                local response = self.Library.Creator.Request({
+                    Url = rawUrl,
+                    Method = "GET",
+                    Headers = {
+                        ["User-Agent"] = "WindUI-GitHub-Background",
+                    },
+                })
+                if response.StatusCode and response.StatusCode >= 400 then
+                    error("HTTP " .. tostring(response.StatusCode))
+                end
+                body = response.Body
+            else
+                body = game:HttpGet(rawUrl)
+            end
+            if type(body) ~= "string" or #body < 16 then
+                error("The downloaded image is empty")
+            end
+            writefile(cachePath, body)
+        end
+    end)
+    if not downloaded then
+        warn("[ WindUI ] GitHub background download failed: " .. tostring(downloadError))
+        return false, downloadError
+    end
+    local loaded, customAsset = pcall(function()
+        return getcustomasset(cachePath)
+    end)
+    if not loaded then
+        warn("[ WindUI ] GitHub background load failed: " .. tostring(customAsset))
+        return false, customAsset
+    end
+    local media = self.Window.UIElements.BackgroundMedia
+    if not media or not media:IsA("ImageLabel") then
+        if media then
+            media:Destroy()
+        end
+        media = Instance.new("ImageLabel")
+        media.Name = "GitHubBackground"
+        media.BackgroundTransparency = 1
+        media.Size = UDim2.fromScale(1, 1)
+        media.ScaleType = Enum.ScaleType.Crop
+        media.ZIndex = 0
+        media.Parent = self.Window.UIElements.Main.Background
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, self.Window.UICorner)
+        corner.Parent = media
+        self.Window.UIElements.BackgroundMedia = media
+    end
+    media.Image = customAsset
+    self.Window.GitHubBackground = rawUrl
+    self.Window.GitHubBackgroundCachePath = cachePath
+    self:SetBackgroundTransparency(transparency == nil and 0.35 or transparency)
+    return true, cachePath
+end
+function App:RefreshGitHubBackground(url, transparency)
+    return self:SetGitHubBackground(url or self.Window.GitHubBackground, transparency, true)
+end
+function App:ClearGitHubBackgroundCache()
+    local cachePath = self.Window.GitHubBackgroundCachePath
+    if cachePath and isfile(cachePath) then
+        delfile(cachePath)
+    end
+    self.Window.GitHubBackgroundCachePath = nil
+    return self
+end
+local function getRemoteVideoExtension(url)
+    local cleanUrl = url:match("^[^?]+") or url
+    local extension = cleanUrl:match("%.([%w]+)$")
+    extension = extension and extension:lower() or "webm"
+    if extension ~= "webm" and extension ~= "mp4" then
+        extension = "webm"
+    end
+    return "." .. extension
+end
+function App:SetGitHubVideoBackground(url, options)
+    options = type(options) == "table" and options or {}
+    local rawUrl = normalizeGitHubBackgroundUrl(url)
+    if not rawUrl or not rawUrl:match("^https://") then
+        warn("[ WindUI ] Invalid GitHub video URL")
+        return false, "Invalid GitHub video URL"
+    end
+    local extension = getRemoteVideoExtension(rawUrl)
+    if extension ~= ".webm" and extension ~= ".mp4" then
+        return false, "Only WebM and MP4 videos are supported"
+    end
+    local assetFolder = (self.Window.Folder or "WindUI") .. "/assets"
+    if not isfolder(assetFolder) then
+        makefolder(assetFolder)
+    end
+    local cachePath = assetFolder .. "/github_video_" .. self.Library.Creator.SanitizeFilename(rawUrl) .. extension
+    local downloaded, downloadError = pcall(function()
+        if options.ForceRefresh or not isfile(cachePath) then
+            local body
+            if self.Library.Creator.Request then
+                local response = self.Library.Creator.Request({
+                    Url = rawUrl,
+                    Method = "GET",
+                    Headers = {
+                        ["User-Agent"] = "WindUI-GitHub-Video",
+                    },
+                })
+                if response.StatusCode and response.StatusCode >= 400 then
+                    error("HTTP " .. tostring(response.StatusCode))
+                end
+                body = response.Body
+            else
+                body = game:HttpGet(rawUrl)
+            end
+            if type(body) ~= "string" or #body < 32 then
+                error("The downloaded video is empty")
+            end
+            writefile(cachePath, body)
+        end
+    end)
+    if not downloaded then
+        warn("[ WindUI ] GitHub video download failed: " .. tostring(downloadError))
+        return false, downloadError
+    end
+    local loaded, customAsset = pcall(function()
+        return getcustomasset(cachePath)
+    end)
+    if not loaded then
+        warn("[ WindUI ] GitHub video load failed: " .. tostring(customAsset))
+        return false, customAsset
+    end
+    local oldMedia = self.Window.UIElements.BackgroundMedia
+    local backgroundParent = self.Window.UIElements.Main.Background
+    if oldMedia then
+        oldMedia:Destroy()
+    end
+    local video = Instance.new("VideoFrame")
+    video.Name = "GitHubVideoBackground"
+    video.BackgroundTransparency = 1
+    video.Size = UDim2.fromScale(1, 1)
+    video.Video = customAsset
+    video.ScaleType = Enum.ScaleType.Crop
+    video.Looped = options.Looped ~= false
+    video.Volume = math.clamp(tonumber(options.Volume) or 0, 0, 1)
+    video.ZIndex = 0
+    video.Parent = backgroundParent
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, self.Window.UICorner)
+    corner.Parent = video
+    self.Window.UIElements.BackgroundMedia = video
+    self.Window.GitHubVideoBackground = rawUrl
+    self.Window.GitHubVideoCachePath = cachePath
+    if options.Playing ~= false then
+        local played, playError = pcall(function()
+            video:Play()
+        end)
+        if not played then
+            warn("[ WindUI ] VideoFrame could not play this custom video: " .. tostring(playError))
+            return false, playError
+        end
+    end
+    return true, video
+end
+function App:RefreshGitHubVideoBackground(url, options)
+    options = type(options) == "table" and options or {}
+    options.ForceRefresh = true
+    return self:SetGitHubVideoBackground(url or self.Window.GitHubVideoBackground, options)
+end
+function App:PlayBackgroundVideo()
+    local media = self.Window.UIElements.BackgroundMedia
+    if media and media:IsA("VideoFrame") then
+        media:Play()
+        return true
+    end
+    return false
+end
+function App:PauseBackgroundVideo()
+    local media = self.Window.UIElements.BackgroundMedia
+    if media and media:IsA("VideoFrame") then
+        media:Pause()
+        return true
+    end
+    return false
+end
+function App:SetBackgroundVideoVolume(volume)
+    local media = self.Window.UIElements.BackgroundMedia
+    if media and media:IsA("VideoFrame") then
+        media.Volume = math.clamp(tonumber(volume) or 0, 0, 1)
+        return true
+    end
+    return false
+end
+function App:SetBackgroundVideoLooped(looped)
+    local media = self.Window.UIElements.BackgroundMedia
+    if media and media:IsA("VideoFrame") then
+        media.Looped = looped ~= false
+        return true
+    end
+    return false
+end
+function App:ClearGitHubVideoCache()
+    local cachePath = self.Window.GitHubVideoCachePath
+    if cachePath and isfile(cachePath) then
+        delfile(cachePath)
+    end
+    self.Window.GitHubVideoCachePath = nil
     return self
 end
 function App:SetBackgroundTransparency(value)
