@@ -3884,6 +3884,7 @@ do
                     Padding = UDim.new(0, ah.Padding / 1.5),
                 }),
             })
+            ah.TagFrame = al
             function ah.SetTitle(am, an)
                 ah.Title = an
                 aj.Text = an
@@ -3920,6 +3921,13 @@ do
                         ImageColor3 = an,
                     }):Play()
                 end
+            end
+            function ah.Visible(am, an)
+                al.Visible = an ~= false
+                return ah
+            end
+            function ah.Destroy(am)
+                al:Destroy()
             end
             return ah
         end
@@ -9620,6 +9628,10 @@ do
                 TopbarSearchEnabled = ar.TopbarSearchEnabled ~= false,
                 TopbarSearchWidth = ar.TopbarSearchWidth or 150,
                 TopbarSearchPlaceholder = ar.TopbarSearchPlaceholder or "搜索功能...",
+                SearchHotkey = ar.SearchHotkey or Enum.KeyCode.K,
+                SearchRequiresControl = ar.SearchRequiresControl ~= false,
+                TopbarClock = ar.TopbarClock or false,
+                TopbarClockFormat = ar.TopbarClockFormat or "%H:%M:%S",
                 ScrollBarEnabled = ar.ScrollBarEnabled or false,
                 SideBarWidth = ar.SideBarWidth or 200,
                 Acrylic = ar.Acrylic or false,
@@ -10270,6 +10282,11 @@ do
                     }),
                 }),
             })
+            as.UIElements.TitleLabel = h
+            as.UIElements.AuthorLabel = f
+            as.UIElements.BackgroundMedia = aE
+            as.UIElements.WindowShadow = az
+            as.UIElements.TopbarFrame = as.UIElements.Main.Main.Topbar
             aj.AddSignal(as.UIElements.Main.Main.Topbar.Left:GetPropertyChangedSignal("AbsoluteSize"), function()
                 local j = 0
                 local l = as.UIElements.Main.Main.Topbar.Right.UIListLayout.AbsoluteContentSize.X / ar.WindUI.UIScale
@@ -10994,6 +11011,20 @@ do
                 end
                 return ap:New(B, as.UIElements.Main.Main.Topbar.Center)
             end
+            if as.TopbarClock then
+                local clockTag = as:Tag({
+                    Title = os.date(as.TopbarClockFormat),
+                    Icon = "clock",
+                    Color = Color3.fromRGB(48, 153, 255),
+                })
+                as.UIElements.TopbarClock = clockTag
+                task.spawn(function()
+                    while not as.Destroyed do
+                        clockTag:SetTitle(os.date(as.TopbarClockFormat))
+                        task.wait(1)
+                    end
+                end)
+            end
             local function startResizing(x)
                 if as.CanResize then
                     isResizing = true
@@ -11101,6 +11132,18 @@ do
                 searchPopup:Focus()
                 return searchPopup
             end
+            aj.AddSignal(ae.InputBegan, function(G, H)
+                if H or ae:GetFocusedTextBox() then
+                    return
+                end
+                if G.KeyCode ~= as.SearchHotkey then
+                    return
+                end
+                local controlDown = ae:IsKeyDown(Enum.KeyCode.LeftControl) or ae:IsKeyDown(Enum.KeyCode.RightControl)
+                if not as.SearchRequiresControl or controlDown then
+                    as:OpenSearch("")
+                end
+            end)
             if as.TopbarSearchEnabled then
                 local searchIcon = aj.Image("search", "TopbarSearch", 0, as.Folder, "WindowTopbarIcon", true, true, "WindowTopbarButtonIcon")
                 searchIcon.Size = UDim2.fromOffset(15, 15)
@@ -11512,6 +11555,23 @@ function Page:Button(title, callback, options)
         Callback = callback,
     }))
 end
+function Page:DebouncedButton(title, cooldown, callback, options)
+    local waiting = false
+    local delaySeconds = math.max(tonumber(cooldown) or 0.5, 0)
+    return self:Button(title, function()
+        if waiting then
+            return
+        end
+        waiting = true
+        local ok, result = pcall(callback)
+        task.delay(delaySeconds, function()
+            waiting = false
+        end)
+        if not ok then
+            warn("[ WindUI ] DebouncedButton callback error: " .. tostring(result))
+        end
+    end, options)
+end
 function Page:Toggle(title, defaultValue, callback, options)
     return self:_create("Toggle", mergeOptions(options, {
         Title = title,
@@ -11619,6 +11679,204 @@ function App:Notify(titleOrOptions, content, duration)
 end
 function App:SetTheme(themeName)
     return self.Library:SetTheme(themeName)
+end
+function App:SetAccentColor(color)
+    if typeof(color) ~= "Color3" then
+        error("Accent color must be a Color3", 2)
+    end
+    local theme = self.Library.Theme
+    theme.Primary = color
+    theme.Button = color
+    theme.Toggle = color
+    theme.Slider = color
+    theme.Checkbox = color
+    self.Library.Creator.SetTheme(theme)
+    return self
+end
+function App:EnableRainbowAccent(speed)
+    self.RainbowToken = (self.RainbowToken or 0) + 1
+    local token = self.RainbowToken
+    local cycleSpeed = math.max(tonumber(speed) or 0.12, 0.01)
+    task.spawn(function()
+        local hue = 0
+        while self.RainbowToken == token and not self.Window.Destroyed do
+            hue = (hue + cycleSpeed * 0.02) % 1
+            self:SetAccentColor(Color3.fromHSV(hue, 0.78, 1))
+            task.wait(0.02)
+        end
+    end)
+    return self
+end
+function App:DisableRainbowAccent(color)
+    self.RainbowToken = (self.RainbowToken or 0) + 1
+    if color then
+        self:SetAccentColor(color)
+    end
+    return self
+end
+function App:SetGlassTransparency(value)
+    value = math.clamp(tonumber(value) or 0.15, 0, 1)
+    self.Window:SetBackgroundTransparency(value)
+    return self
+end
+function App:SetBackgroundImage(image, transparency)
+    local media = self.Window.UIElements.BackgroundMedia
+    if not media or not media:IsA("ImageLabel") then
+        warn("[ WindUI ] Create the window with a Background image before changing it")
+        return self
+    end
+    media.Image = tostring(image or "")
+    if transparency ~= nil then
+        self:SetBackgroundTransparency(transparency)
+    end
+    return self
+end
+function App:SetBackgroundTransparency(value)
+    local media = self.Window.UIElements.BackgroundMedia
+    if media and media:IsA("ImageLabel") then
+        value = math.clamp(tonumber(value) or 0, 0, 1)
+        media.ImageTransparency = value
+        self.Window.BackgroundImageTransparency = value
+    end
+    return self
+end
+function App:SetShadow(transparency, color)
+    local shadow = self.Window.UIElements.WindowShadow
+    if shadow then
+        if transparency ~= nil then
+            shadow.ImageTransparency = math.clamp(tonumber(transparency) or 0.7, 0, 1)
+            self.Window.ShadowTransparency = shadow.ImageTransparency
+        end
+        if typeof(color) == "Color3" then
+            shadow.ImageColor3 = color
+        end
+    end
+    return self
+end
+function App:SetSearchWidth(width)
+    local search = self.Window.UIElements.TopbarSearch
+    if search then
+        width = math.clamp(tonumber(width) or 150, 90, 260)
+        search.Size = UDim2.fromOffset(width, search.Size.Y.Offset)
+        self.Window.TopbarSearchWidth = width
+    end
+    return self
+end
+function App:SetClockVisible(visible)
+    local clock = self.Window.UIElements.TopbarClock
+    if clock then
+        clock:Visible(visible ~= false)
+    end
+    return self
+end
+function App:SetUIFont(fontAsset)
+    self.Library:SetFont(fontAsset)
+    return self
+end
+function App:SetTitleColor(color)
+    local title = self.Window.UIElements.TitleLabel
+    if title and typeof(color) == "Color3" then
+        title.TextColor3 = color
+    end
+    return self
+end
+function App:SetTopbarTint(color, transparency)
+    local topbar = self.Window.UIElements.TopbarFrame
+    if topbar then
+        if typeof(color) == "Color3" then
+            topbar.BackgroundColor3 = color
+        end
+        topbar.BackgroundTransparency = math.clamp(tonumber(transparency) or 0.88, 0, 1)
+    end
+    return self
+end
+function App:Pulse(intensity)
+    local scaleObject = self.Library.UIScaleObj
+    local baseScale = scaleObject.Scale
+    local amount = math.clamp(tonumber(intensity) or 0.035, 0.01, 0.12)
+    self.Library.Creator.Tween(scaleObject, 0.12, {
+        Scale = baseScale - amount,
+    }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out):Play()
+    task.delay(0.12, function()
+        if not self.Window.Destroyed then
+            self.Library.Creator.Tween(scaleObject, 0.24, {
+                Scale = baseScale,
+            }, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+        end
+    end)
+    return self
+end
+function App:Search(query)
+    return self.Window:OpenSearch(query or "")
+end
+function App:SetSearchVisible(visible)
+    local search = self.Window.UIElements.TopbarSearch
+    if search then
+        search.Visible = visible ~= false
+    end
+    return self
+end
+function App:SetStatus(text, color, icon)
+    color = color or Color3.fromRGB(52, 199, 89)
+    if not self.StatusTag then
+        self.StatusTag = self.Window:Tag({
+            Title = tostring(text or "Ready"),
+            Icon = icon or "circle-check",
+            Color = color,
+        })
+    else
+        self.StatusTag:SetTitle(tostring(text or "Ready"))
+        self.StatusTag:SetColor(color)
+        self.StatusTag:Visible(true)
+    end
+    return self.StatusTag
+end
+function App:ClearStatus()
+    if self.StatusTag then
+        self.StatusTag:Destroy()
+        self.StatusTag = nil
+    end
+    return self
+end
+function App:SetScale(scale)
+    return self.Window:SetUIScale(math.clamp(tonumber(scale) or 1, 0.5, 1.5))
+end
+function App:Center()
+    self.Window:SetToTheCenter()
+    return self
+end
+function App:Confirm(title, content, onConfirm, onCancel)
+    return self.Window:Dialog({
+        Title = title or "确认操作",
+        Content = content or "确定要继续吗？",
+        Buttons = {
+            {
+                Title = "取消",
+                Variant = "Secondary",
+                Callback = onCancel or function()
+                end,
+            },
+            {
+                Title = "确定",
+                Variant = "Primary",
+                Callback = onConfirm or function()
+                end,
+            },
+        },
+    })
+end
+function App:On(eventName, callback)
+    local events = {
+        Open = "OnOpen",
+        Close = "OnClose",
+        Destroy = "OnDestroy",
+    }
+    local methodName = events[eventName]
+    if not methodName then
+        error("Unknown lifecycle event: " .. tostring(eventName), 2)
+    end
+    self.Window[methodName](self.Window, callback)
+    return self
 end
 function App:Open()
     return self.Window:Open()
