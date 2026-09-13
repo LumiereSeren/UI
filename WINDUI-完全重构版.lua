@@ -11340,7 +11340,7 @@ local aa = {
     UIScale = 1,
     ConfigManager = nil,
     Version = "0.0.0",
-    BuildVersion = "PY-WindUI-Image-Sync-1",
+    BuildVersion = "PY-WindUI-Skeleton-Sync-1",
     Services = a.load('h'),
     OnThemeChangeFunction = nil,
     cloneref = nil,
@@ -13225,6 +13225,118 @@ local function createSyncLabel(parent, text, size, position, textSize, alignment
     return label
 end
 
+local DEFAULT_SKELETON_POINTS = {
+    head = Vector2.new(0.50, 0.12), neck = Vector2.new(0.50, 0.23),
+    left_shoulder = Vector2.new(0.37, 0.27), right_shoulder = Vector2.new(0.63, 0.27),
+    left_elbow = Vector2.new(0.28, 0.43), right_elbow = Vector2.new(0.72, 0.43),
+    left_wrist = Vector2.new(0.22, 0.58), right_wrist = Vector2.new(0.78, 0.58),
+    hip = Vector2.new(0.50, 0.55), left_hip = Vector2.new(0.43, 0.57), right_hip = Vector2.new(0.57, 0.57),
+    left_knee = Vector2.new(0.42, 0.75), right_knee = Vector2.new(0.58, 0.75),
+    left_ankle = Vector2.new(0.41, 0.94), right_ankle = Vector2.new(0.59, 0.94),
+}
+
+local SKELETON_BONES = {
+    {"head", "neck", "Head"},
+    {"neck", "left_shoulder", "Torso"}, {"neck", "right_shoulder", "Torso"},
+    {"left_shoulder", "right_shoulder", "Torso"}, {"neck", "hip", "Torso"},
+    {"left_shoulder", "left_elbow", "LeftArm"}, {"left_elbow", "left_wrist", "LeftArm"},
+    {"right_shoulder", "right_elbow", "RightArm"}, {"right_elbow", "right_wrist", "RightArm"},
+    {"hip", "left_hip", "Torso"}, {"hip", "right_hip", "Torso"},
+    {"left_hip", "left_knee", "LeftLeg"}, {"left_knee", "left_ankle", "LeftLeg"},
+    {"right_hip", "right_knee", "RightLeg"}, {"right_knee", "right_ankle", "RightLeg"},
+}
+
+local SKELETON_POINT_PARTS = {
+    head = "Head", neck = "Torso", hip = "Torso",
+    left_shoulder = "LeftArm", left_elbow = "LeftArm", left_wrist = "LeftArm",
+    right_shoulder = "RightArm", right_elbow = "RightArm", right_wrist = "RightArm",
+    left_hip = "LeftLeg", left_knee = "LeftLeg", left_ankle = "LeftLeg",
+    right_hip = "RightLeg", right_knee = "RightLeg", right_ankle = "RightLeg",
+}
+
+function ImageSyncPanel:_RenderSkeleton()
+    if not self.SkeletonLayer then return end
+    for _, object in ipairs(self.SkeletonObjects or {}) do object:Destroy() end
+    table.clear(self.SkeletonObjects)
+    local points = self.SkeletonPoints or DEFAULT_SKELETON_POINTS
+    local displaySize = self.DisplayImageSize
+
+    local function makeLine(a, b, part, tracer)
+        if not a or not b then return end
+        local start = Vector2.new(a.X * displaySize.X, a.Y * displaySize.Y)
+        local finish = Vector2.new(b.X * displaySize.X, b.Y * displaySize.Y)
+        local delta = finish - start
+        local line = Instance.new("Frame")
+        line.Name = tracer and "ESPTracer" or ("Bone_" .. part)
+        line.AnchorPoint = Vector2.new(0, 0.5)
+        line.Position = UDim2.fromOffset(start.X, start.Y)
+        line.Size = UDim2.fromOffset(delta.Magnitude, tracer and 1 or 2)
+        line.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+        line.BackgroundColor3 = self.AccentColor
+        line.BackgroundTransparency = tracer and 0.42 or 0.08
+        line.BorderSizePixel = 0
+        line.ZIndex = tracer and 307 or 309
+        line.Visible = tracer and self.TracerEnabled or self.PartState[part] == true
+        line:SetAttribute("ESPPart", part)
+        line:SetAttribute("IsTracer", tracer == true)
+        line.Parent = self.SkeletonLayer
+        createSyncCorner(line, 2)
+        table.insert(self.SkeletonObjects, line)
+    end
+
+    for _, bone in ipairs(SKELETON_BONES) do
+        makeLine(points[bone[1]], points[bone[2]], bone[3], false)
+    end
+    makeLine(Vector2.new(0.5, 1), points.hip or points.neck, "Torso", true)
+
+    for name, point in pairs(points) do
+        local joint = Instance.new("Frame")
+        joint.Name = "Joint_" .. name
+        joint.AnchorPoint = Vector2.new(0.5, 0.5)
+        joint.Position = UDim2.fromScale(point.X, point.Y)
+        joint.Size = UDim2.fromOffset(name == "head" and 7 or 5, name == "head" and 7 or 5)
+        joint.BackgroundColor3 = Color3.fromRGB(242, 247, 255)
+        joint.BackgroundTransparency = 0.04
+        joint.BorderSizePixel = 0
+        joint.ZIndex = 310
+        joint:SetAttribute("ESPPart", SKELETON_POINT_PARTS[name] or "Torso")
+        joint:SetAttribute("IsTracer", false)
+        joint.Parent = self.SkeletonLayer
+        createSyncCorner(joint, 10)
+        table.insert(self.SkeletonObjects, joint)
+    end
+    self:_UpdateSkeleton()
+end
+
+function ImageSyncPanel:_UpdateSkeleton()
+    for _, object in ipairs(self.SkeletonObjects or {}) do
+        if object:GetAttribute("IsTracer") then
+            object.Visible = self.TracerEnabled
+        else
+            object.Visible = self.PartState[object:GetAttribute("ESPPart")] == true
+            object.BackgroundColor3 = object.Name:match("^Joint_") and Color3.fromRGB(242, 247, 255) or self.AccentColor
+        end
+    end
+end
+
+function ImageSyncPanel:SetSkeleton(points)
+    local normalized = {}
+    for name, point in pairs(points or {}) do
+        local x = tonumber(point.x or point[1])
+        local y = tonumber(point.y or point[2])
+        if x and y then normalized[name] = Vector2.new(math.clamp(x, 0, 1), math.clamp(y, 0, 1)) end
+    end
+    self.SkeletonPoints = next(normalized) and normalized or DEFAULT_SKELETON_POINTS
+    self:_RenderSkeleton()
+    return self
+end
+
+function ImageSyncPanel:SetTracerEnabled(enabled)
+    self.TracerEnabled = enabled == true
+    self:_UpdateSkeleton()
+    return self
+end
+
 function ImageSyncPanel:_UpdateStatus()
     local selected = {
     }
@@ -13242,15 +13354,13 @@ function ImageSyncPanel:_UpdateRegion(name)
     if not regionButton then
         return
     end
-    local enabled = self.PartState[name] == true
-    regionButton.BackgroundColor3 = self.AccentColor
-    regionButton.BackgroundTransparency = enabled and 0.52 or 1
-    regionButton.TextTransparency = enabled and (self.ShowLabels and 0.08 or 1) or 1
+    regionButton.BackgroundTransparency = 1
+    regionButton.TextTransparency = 1
     local stroke = regionButton:FindFirstChild("RegionStroke")
     if stroke then
-        stroke.Color = self.AccentColor
-        stroke.Transparency = enabled and 0.12 or 1
+        stroke.Transparency = 1
     end
+    self:_UpdateSkeleton()
 end
 
 function ImageSyncPanel:_BuildRegions(regions)
@@ -13300,6 +13410,7 @@ function ImageSyncPanel:_ApplyDetectedSize(sourceSize, detected)
     self.ImageHolder.Size = UDim2.fromOffset(displaySize.X, displaySize.Y)
     self.Root.Size = UDim2.fromOffset(displaySize.X + 20, displaySize.Y + 74)
     self.SizeLabel.Text = string.format("%d × %d%s", sourceSize.X, sourceSize.Y, detected and "" or " 备用")
+    self:_RenderSkeleton()
     if self.Collapsed then
         self.Root.Size = UDim2.fromOffset(math.max(displaySize.X + 20, 170), 38)
     end
@@ -13342,6 +13453,137 @@ function ImageSyncPanel:SetImage(source, fallbackSize, forceRefresh)
     return self
 end
 
+function ImageSyncPanel:SetRegions(regions)
+    if type(regions) ~= "table" then
+        error("Image sync regions must be a table", 2)
+    end
+    self:_BuildRegions(regions)
+    return self
+end
+
+local function normalizeVisionRegions(payload, sourceSize)
+    local rawRegions = payload.parts or payload.regions or payload
+    if type(rawRegions) ~= "table" then
+        error("Vision response does not contain a parts table")
+    end
+
+    local titles = {
+        Head = "头部",
+        Torso = "躯干",
+        LeftArm = "左臂",
+        RightArm = "右臂",
+        LeftLeg = "左腿",
+        RightLeg = "右腿",
+    }
+    local width = tonumber(payload.width) or sourceSize.X
+    local height = tonumber(payload.height) or sourceSize.Y
+    local result = {}
+
+    for name, box in pairs(rawRegions) do
+        if type(box) == "table" then
+            local x = tonumber(box.x or box[1])
+            local y = tonumber(box.y or box[2])
+            local w = tonumber(box.width or box.w or box[3])
+            local h = tonumber(box.height or box.h or box[4])
+            if x and y and w and h and w > 0 and h > 0 then
+                if x > 1 or y > 1 or w > 1 or h > 1 then
+                    x, y, w, h = x / width, y / height, w / width, h / height
+                end
+                x = math.clamp(x, 0, 1)
+                y = math.clamp(y, 0, 1)
+                w = math.clamp(w, 0.01, 1 - x)
+                h = math.clamp(h, 0.01, 1 - y)
+                result[tostring(name)] = {
+                    Title = box.title or titles[tostring(name)] or tostring(name),
+                    Position = UDim2.fromScale(x, y),
+                    Size = UDim2.fromScale(w, h),
+                    Radius = tonumber(box.radius) or 8,
+                }
+            end
+        end
+    end
+    if next(result) == nil then
+        error("Vision response contains no valid body regions")
+    end
+    local points = {}
+    for name, point in pairs(payload.keypoints or {}) do
+        if type(point) == "table" then
+            local x, y = tonumber(point.x or point[1]), tonumber(point.y or point[2])
+            if x and y then
+                if x > 1 or y > 1 then x, y = x / width, y / height end
+                points[tostring(name)] = {math.clamp(x, 0, 1), math.clamp(y, 0, 1)}
+            end
+        end
+    end
+    return {Regions = result, Keypoints = points}
+end
+
+function ImageSyncPanel:AnalyzeParts(endpoint, imageUrl, options)
+    options = type(options) == "table" and copyOptions(options) or {}
+    if type(endpoint) ~= "string" or not endpoint:match("^https://") then
+        error("Vision endpoint must be an HTTPS URL", 2)
+    end
+    imageUrl = imageUrl or self.ImageSource
+    if type(imageUrl) ~= "string" or not imageUrl:match("^https://") then
+        error("Vision analysis requires a public HTTPS image URL", 2)
+    end
+
+    self.SizeLabel.Text = "AI 正在识别部位..."
+    task.spawn(function()
+        local success, result = pcall(function()
+            local request = self.App.Library.Creator.Request
+            if not request then
+                error("This environment does not provide an HTTP request function")
+            end
+            local headers = {
+                ["Content-Type"] = "application/json",
+            }
+            if type(options.ClientToken) == "string" and options.ClientToken ~= "" then
+                headers["X-Client-Token"] = options.ClientToken
+            end
+            local response = request({
+                Url = endpoint,
+                Method = "POST",
+                Headers = headers,
+                Body = HttpService:JSONEncode({
+                    image_url = imageUrl,
+                    model = options.Model or "qwen3-vl-plus",
+                }),
+            })
+            local statusCode = tonumber(response.StatusCode) or 0
+            if statusCode < 200 or statusCode >= 300 then
+                error("Vision service HTTP " .. tostring(statusCode) .. ": " .. tostring(response.Body))
+            end
+            local payload = HttpService:JSONDecode(response.Body)
+            if payload.error then
+                error(type(payload.error) == "table" and payload.error.message or tostring(payload.error))
+            end
+            return normalizeVisionRegions(payload, self.SourceImageSize)
+        end)
+
+        if self.Destroyed then
+            return
+        end
+        if not success then
+            self.SizeLabel.Text = "AI 识别失败"
+            if type(options.OnError) == "function" then
+                task.spawn(options.OnError, result)
+            elseif type(self.OnError) == "function" then
+                task.spawn(self.OnError, result)
+            end
+            return
+        end
+
+        self:SetRegions(result.Regions)
+        self:SetSkeleton(result.Keypoints)
+        self.SizeLabel.Text = string.format("%d × %d  AI 已定位", self.SourceImageSize.X, self.SourceImageSize.Y)
+        if type(options.OnCompleted) == "function" then
+            task.spawn(options.OnCompleted, result)
+        end
+    end)
+    return self
+end
+
 function ImageSyncPanel:SetPartEnabled(name, enabled)
     self.PartState[tostring(name)] = enabled == true
     self:_UpdateRegion(tostring(name))
@@ -13368,6 +13610,7 @@ function ImageSyncPanel:SetParts(parts)
     for name in pairs(self.RegionButtons) do
         self:_UpdateRegion(name)
     end
+    self:_UpdateSkeleton()
     self:_UpdateStatus()
     return self
 end
@@ -13382,6 +13625,7 @@ function ImageSyncPanel:SetAccentColor(color)
     for name in pairs(self.RegionButtons) do
         self:_UpdateRegion(name)
     end
+    self:_UpdateSkeleton()
     return self
 end
 
@@ -13447,6 +13691,10 @@ function App:CreateImageSyncPanel(options)
         PartState = copyOptions(self.ESPParts),
         RegionButtons = {
         },
+        SkeletonObjects = {
+        },
+        SkeletonPoints = DEFAULT_SKELETON_POINTS,
+        TracerEnabled = options.TracerEnabled == true,
         Connections = {
         },
         LoadToken = 0,
@@ -13561,6 +13809,13 @@ function App:CreateImageSyncPanel(options)
     overlay.ZIndex = 306
     overlay.Parent = imageHolder
 
+    local skeletonLayer = Instance.new("Frame")
+    skeletonLayer.Name = "Skeleton"
+    skeletonLayer.Size = UDim2.fromScale(1, 1)
+    skeletonLayer.BackgroundTransparency = 1
+    skeletonLayer.ZIndex = 308
+    skeletonLayer.Parent = imageHolder
+
     local sizeLabel = createSyncLabel(body, "等待图片", UDim2.new(0.46, 0, 0, 20), UDim2.new(0, 0, 1, 2), 11)
     sizeLabel.TextColor3 = Color3.fromRGB(112, 126, 150)
     local statusLabel = createSyncLabel(body, "未选择显示部位", UDim2.new(0.54, 0, 0, 20), UDim2.new(0.46, 0, 1, 2), 11, Enum.TextXAlignment.Right)
@@ -13573,6 +13828,7 @@ function App:CreateImageSyncPanel(options)
     panel.ImageHolder = imageHolder
     panel.Image = image
     panel.Overlay = overlay
+    panel.SkeletonLayer = skeletonLayer
     panel.SizeLabel = sizeLabel
     panel.StatusLabel = statusLabel
     panel.CollapseButton = collapseButton
