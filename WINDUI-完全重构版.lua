@@ -11340,7 +11340,7 @@ local aa = {
     UIScale = 1,
     ConfigManager = nil,
     Version = "0.0.0",
-    BuildVersion = "PY-WindUI-Beauty-Pack-1",
+    BuildVersion = "PY-WindUI-Image-Sync-1",
     Services = a.load('h'),
     OnThemeChangeFunction = nil,
     cloneref = nil,
@@ -12101,6 +12101,15 @@ local function playRipple(self, button, inputPosition)
         return
     end
 
+    local maxTargetHeight = math.clamp(
+        tonumber(state.RippleOptions and state.RippleOptions.MaxTargetHeight) or 96,
+        40,
+        160
+    )
+    if not button.Visible or size.Y > maxTargetHeight or size.X > 640 then
+        return
+    end
+
     local overlay = button:FindFirstChild("WindUIBeautyRippleLayer")
     if not overlay then
         overlay = Instance.new("Frame")
@@ -12112,7 +12121,7 @@ local function playRipple(self, button, inputPosition)
         overlay.Selectable = false
         overlay.Size = UDim2.fromScale(1, 1)
         overlay.Position = UDim2.fromScale(0, 0)
-        overlay.ZIndex = button.ZIndex + 20
+        overlay.ZIndex = button.ZIndex + 1
         overlay.Parent = button
         addCorner(overlay, math.clamp(math.floor(size.Y / 2), 8, 18), "RippleCorner")
     end
@@ -12124,7 +12133,12 @@ local function playRipple(self, button, inputPosition)
         localPosition = size / 2
     end
 
-    local diameter = math.max(size.X, size.Y) * 2.15
+    local maxDiameter = math.clamp(
+        tonumber(state.RippleOptions and state.RippleOptions.MaxDiameter) or 160,
+        64,
+        260
+    )
+    local diameter = math.min(math.max(size.Y * 2.35, 64), maxDiameter)
     local ripple = Instance.new("Frame")
     ripple.Name = "Ripple"
     ripple.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -12136,13 +12150,13 @@ local function playRipple(self, button, inputPosition)
         rippleColor = state.Palette.Primary or Color3.new(1, 1, 1)
     end
     ripple.BackgroundColor3 = rippleColor
-    ripple.BackgroundTransparency = state.RippleOptions and state.RippleOptions.StartTransparency or 0.64
+    ripple.BackgroundTransparency = state.RippleOptions and state.RippleOptions.StartTransparency or 0.82
     ripple.ZIndex = overlay.ZIndex
     ripple.Parent = overlay
     addCorner(ripple, 999, "Circle")
 
     local duration = math.clamp(
-        tonumber(state.RippleOptions and state.RippleOptions.Duration) or 0.48,
+        tonumber(state.RippleOptions and state.RippleOptions.Duration) or 0.36,
         0.2,
         1.2
     )
@@ -12308,6 +12322,73 @@ function App:SetMaterialPalette(seedColor, mode)
     return palette
 end
 
+-- Clean anime dark preset: restrained navy surfaces, one accent color,
+-- flat navigation, subtle depth, and no attention-grabbing effects by default.
+function App:SetAnimeDarkStyle(options)
+    options = type(options) == "table" and copyOptions(options) or {}
+    local state = getBeautyState(self)
+    local accent = typeof(options.AccentColor) == "Color3"
+        and options.AccentColor
+        or typeof(options.SeedColor) == "Color3" and options.SeedColor
+        or Color3.fromRGB(86, 156, 255)
+
+    local palette = {
+        Mode = "Dark",
+        Seed = accent,
+        Primary = accent,
+        OnPrimary = Color3.fromRGB(247, 250, 255),
+        PrimaryContainer = mixColor(Color3.fromRGB(25, 45, 76), accent, 0.2),
+        OnPrimaryContainer = Color3.fromRGB(213, 230, 255),
+        Secondary = Color3.fromRGB(126, 158, 205),
+        SecondaryContainer = Color3.fromRGB(28, 38, 56),
+        Tertiary = Color3.fromRGB(93, 205, 225),
+        Surface = Color3.fromRGB(14, 17, 24),
+        SurfaceContainer = Color3.fromRGB(19, 24, 34),
+        SurfaceContainerHigh = Color3.fromRGB(24, 30, 43),
+        SurfaceContainerHighest = Color3.fromRGB(30, 38, 54),
+        OnSurface = Color3.fromRGB(239, 244, 253),
+        OnSurfaceVariant = Color3.fromRGB(155, 168, 190),
+        Outline = Color3.fromRGB(54, 68, 92),
+        Error = Color3.fromRGB(255, 168, 163),
+    }
+    local theme = materialThemeFromPalette(palette)
+    theme.Name = "AnimeDark"
+
+    self:DisableRainbowAccent()
+    self.Library:AddTheme(theme)
+    self.Library:SetTheme(theme.Name)
+    state.Enabled = true
+    state.MaterialEnabled = false
+    state.Palette = palette
+
+    self:SetAmbientGlow(false)
+    self:SetRippleEffect(options.Ripple == true, {
+        Duration = options.RippleDuration or 0.3,
+        StartTransparency = options.RippleTransparency or 0.9,
+        MaxDiameter = options.RippleMaxDiameter or 110,
+        MaxTargetHeight = options.RippleMaxTargetHeight or 82,
+    })
+    self:SetHoverMotion(options.HoverMotion == true, {
+        Strength = options.MotionStrength or 0.006,
+    })
+    self:SetLayeredGlass(options.LayeredGlass ~= false, {
+        RegionTransparency = options.RegionTransparency or 0.58,
+        TopbarTransparency = options.TopbarTransparency or 0.62,
+        ScrimTransparency = options.ScrimTransparency or 0.72,
+        CardTransparency = options.CardTransparency or 0.95,
+        TabTransparency = options.TabTransparency or 0.96,
+        DividerEnabled = options.DividerEnabled == true,
+        DividerTransparency = options.DividerTransparency or 0.55,
+    })
+    self:SetShadow(options.ShadowTransparency or 0.82, Color3.fromRGB(4, 8, 16))
+
+    local search = self.Window.UIElements.TopbarSearch
+    if search and (search:IsA("ImageLabel") or search:IsA("ImageButton")) then
+        search.ImageTransparency = 0.91
+    end
+    return self
+end
+
 -- Beauty feature 2: tonal, layered glass surfaces for the window regions and cards.
 function App:SetLayeredGlass(enabled, options)
     local state = getBeautyState(self)
@@ -12402,9 +12483,9 @@ function App:SetLayeredGlass(enabled, options)
         divider.Position = UDim2.new(0, 14, 1, 0)
         divider.Size = UDim2.new(1, -28, 0, 1)
         divider.BackgroundColor3 = Color3.new(1, 1, 1)
-        divider.BackgroundTransparency = 0
+        divider.BackgroundTransparency = math.clamp(tonumber(options.DividerTransparency) or 0, 0, 1)
         divider.ZIndex = 98
-        divider.Visible = true
+        divider.Visible = options.DividerEnabled ~= false
         local gradient = divider:FindFirstChild("DividerGradient")
         if not gradient then
             gradient = Instance.new("UIGradient")
@@ -12577,6 +12658,10 @@ function App:SetBeautyMode(options)
         return self:SetBeautyMode(false)
     end
 
+    if tostring(options.Style or ""):lower() == "animedark" then
+        return self:SetAnimeDarkStyle(options)
+    end
+
     local state = getBeautyState(self)
     state.Enabled = true
     local useMaterial = options.MaterialPalette
@@ -12604,6 +12689,8 @@ function App:SetBeautyMode(options)
         Color = options.RippleColor,
         Duration = options.RippleDuration,
         StartTransparency = options.RippleTransparency,
+        MaxDiameter = options.RippleMaxDiameter,
+        MaxTargetHeight = options.RippleMaxTargetHeight,
     })
     self:SetHoverMotion(options.HoverMotion ~= false, {
         Strength = options.MotionStrength,
@@ -12966,6 +13053,642 @@ function App:ClearGitHubVideoCache()
     self.Window.GitHubVideoCachePath = nil
     return self
 end
+
+local DEFAULT_IMAGE_SYNC_REGIONS = {
+    Head = {
+        Title = "头部",
+        Position = UDim2.fromScale(0.38, 0.045),
+        Size = UDim2.fromScale(0.24, 0.17),
+    },
+    Torso = {
+        Title = "躯干",
+        Position = UDim2.fromScale(0.32, 0.225),
+        Size = UDim2.fromScale(0.36, 0.31),
+    },
+    LeftArm = {
+        Title = "左臂",
+        Position = UDim2.fromScale(0.15, 0.24),
+        Size = UDim2.fromScale(0.16, 0.34),
+    },
+    RightArm = {
+        Title = "右臂",
+        Position = UDim2.fromScale(0.69, 0.24),
+        Size = UDim2.fromScale(0.16, 0.34),
+    },
+    LeftLeg = {
+        Title = "左腿",
+        Position = UDim2.fromScale(0.32, 0.56),
+        Size = UDim2.fromScale(0.17, 0.39),
+    },
+    RightLeg = {
+        Title = "右腿",
+        Position = UDim2.fromScale(0.51, 0.56),
+        Size = UDim2.fromScale(0.17, 0.39),
+    },
+}
+
+local ImageSyncPanel = {
+}
+ImageSyncPanel.__index = ImageSyncPanel
+
+local function copyRegionMap(regions)
+    local result = {
+    }
+    for name, region in pairs(regions or DEFAULT_IMAGE_SYNC_REGIONS) do
+        result[name] = copyOptions(region)
+    end
+    return result
+end
+
+local function detectImageContentSize(imageLabel, fallbackSize, timeout)
+    local deadline = os.clock() + math.clamp(tonumber(timeout) or 12, 1, 30)
+    while imageLabel.Parent and not imageLabel.IsLoaded and os.clock() < deadline do
+        task.wait(0.05)
+    end
+
+    local detected
+    pcall(function()
+        local contentSize = imageLabel.ContentImageSize
+        if contentSize.X > 0 and contentSize.Y > 0 then
+            detected = contentSize
+        end
+    end)
+    if detected then
+        return detected, true
+    end
+    if typeof(fallbackSize) == "Vector2" and fallbackSize.X > 0 and fallbackSize.Y > 0 then
+        return fallbackSize, false
+    end
+    return Vector2.new(512, 512), false
+end
+
+local function fitImagePreviewSize(sourceSize, maximumSize, minimumSize)
+    sourceSize = sourceSize.X > 0 and sourceSize.Y > 0 and sourceSize or Vector2.new(512, 512)
+    maximumSize = typeof(maximumSize) == "Vector2" and maximumSize or Vector2.new(220, 300)
+    minimumSize = typeof(minimumSize) == "Vector2" and minimumSize or Vector2.new(120, 100)
+
+    local ratio = sourceSize.X / sourceSize.Y
+    local width
+    local height
+    if ratio >= maximumSize.X / maximumSize.Y then
+        width = maximumSize.X
+        height = width / ratio
+    else
+        height = maximumSize.Y
+        width = height * ratio
+    end
+    if width < minimumSize.X then
+        width = minimumSize.X
+        height = math.min(width / ratio, maximumSize.Y)
+    end
+    if height < minimumSize.Y then
+        height = minimumSize.Y
+        width = math.min(height * ratio, maximumSize.X)
+    end
+    return Vector2.new(math.floor(width + 0.5), math.floor(height + 0.5))
+end
+
+local function resolveImageSyncAsset(app, source, forceRefresh)
+    if type(source) == "number" then
+        return "rbxassetid://" .. tostring(source)
+    end
+    if type(source) ~= "string" or source == "" then
+        return ""
+    end
+    if source:match("^rbxasset") then
+        return source
+    end
+    if isfile and isfile(source) then
+        return loadExecutorCustomAsset(source)
+    end
+
+    local rawUrl = normalizeGitHubBackgroundUrl(source)
+    if not rawUrl or not rawUrl:match("^https://") then
+        return source
+    end
+    if not writefile or not isfile or not isfolder or not makefolder then
+        error("This environment cannot cache a remote preview image")
+    end
+
+    local assetFolder = (app.Window.Folder or "WindUI") .. "/assets"
+    if not isfolder(assetFolder) then
+        makefolder(assetFolder)
+    end
+    local cachePath = assetFolder
+        .. "/sync_preview_"
+        .. app.Library.Creator.SanitizeFilename(rawUrl)
+        .. getRemoteImageExtension(rawUrl)
+    if forceRefresh or not isfile(cachePath) then
+        local body
+        if app.Library.Creator.Request then
+            local response = app.Library.Creator.Request({
+                Url = rawUrl,
+                Method = "GET",
+                Headers = {
+                    ["User-Agent"] = "WindUI-Image-Sync",
+                },
+            })
+            if response.StatusCode and response.StatusCode >= 400 then
+                error("HTTP " .. tostring(response.StatusCode))
+            end
+            body = response.Body
+        else
+            body = game:HttpGet(rawUrl)
+        end
+        if type(body) ~= "string" or #body < 16 then
+            error("The downloaded preview image is empty")
+        end
+        writefile(cachePath, body)
+    end
+    return loadExecutorCustomAsset(cachePath), cachePath
+end
+
+local function createSyncCorner(parent, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius)
+    corner.Parent = parent
+    return corner
+end
+
+local function createSyncLabel(parent, text, size, position, textSize, alignment)
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.Size = size
+    label.Position = position
+    label.Text = text
+    label.TextSize = textSize
+    label.TextColor3 = Color3.fromRGB(238, 244, 253)
+    label.TextXAlignment = alignment or Enum.TextXAlignment.Left
+    label.FontFace = Font.new("rbxassetid://12187365364", Enum.FontWeight.Medium)
+    label.ZIndex = 304
+    label.Parent = parent
+    return label
+end
+
+function ImageSyncPanel:_UpdateStatus()
+    local selected = {
+    }
+    for name, enabled in pairs(self.PartState) do
+        if enabled then
+            table.insert(selected, self.Regions[name] and self.Regions[name].Title or name)
+        end
+    end
+    table.sort(selected)
+    self.StatusLabel.Text = #selected > 0 and table.concat(selected, " · ") or "未选择显示部位"
+end
+
+function ImageSyncPanel:_UpdateRegion(name)
+    local regionButton = self.RegionButtons[name]
+    if not regionButton then
+        return
+    end
+    local enabled = self.PartState[name] == true
+    regionButton.BackgroundColor3 = self.AccentColor
+    regionButton.BackgroundTransparency = enabled and 0.52 or 1
+    regionButton.TextTransparency = enabled and (self.ShowLabels and 0.08 or 1) or 1
+    local stroke = regionButton:FindFirstChild("RegionStroke")
+    if stroke then
+        stroke.Color = self.AccentColor
+        stroke.Transparency = enabled and 0.12 or 1
+    end
+end
+
+function ImageSyncPanel:_BuildRegions(regions)
+    for _, button in pairs(self.RegionButtons) do
+        button:Destroy()
+    end
+    table.clear(self.RegionButtons)
+    self.Regions = copyRegionMap(regions)
+
+    for name, region in pairs(self.Regions) do
+        local button = Instance.new("TextButton")
+        button.Name = "Region_" .. name
+        button.AutoButtonColor = false
+        button.BorderSizePixel = 0
+        button.Position = region.Position or UDim2.fromScale(0, 0)
+        button.Size = region.Size or UDim2.fromScale(0.2, 0.2)
+        button.Text = region.Title or name
+        button.TextSize = 11
+        button.TextColor3 = Color3.fromRGB(247, 250, 255)
+        button.TextTransparency = 1
+        button.FontFace = Font.new("rbxassetid://12187365364", Enum.FontWeight.SemiBold)
+        button.ZIndex = 307
+        button.Parent = self.Overlay
+        createSyncCorner(button, tonumber(region.Radius) or 7)
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Name = "RegionStroke"
+        stroke.Thickness = 1.25
+        stroke.Transparency = 1
+        stroke.Parent = button
+
+        self.RegionButtons[name] = button
+        self.PartState[name] = self.PartState[name] == true
+        button.MouseButton1Click:Connect(function()
+            self.App:SetESPPart(name, not self.PartState[name])
+        end)
+        self:_UpdateRegion(name)
+    end
+    self:_UpdateStatus()
+end
+
+function ImageSyncPanel:_ApplyDetectedSize(sourceSize, detected)
+    self.SourceImageSize = sourceSize
+    self.DetectedImageSize = detected
+    local displaySize = fitImagePreviewSize(sourceSize, self.MaxImageSize, self.MinImageSize)
+    self.DisplayImageSize = displaySize
+    self.ImageHolder.Size = UDim2.fromOffset(displaySize.X, displaySize.Y)
+    self.Root.Size = UDim2.fromOffset(displaySize.X + 20, displaySize.Y + 74)
+    self.SizeLabel.Text = string.format("%d × %d%s", sourceSize.X, sourceSize.Y, detected and "" or " 备用")
+    if self.Collapsed then
+        self.Root.Size = UDim2.fromOffset(math.max(displaySize.X + 20, 170), 38)
+    end
+end
+
+function ImageSyncPanel:SetImage(source, fallbackSize, forceRefresh)
+    self.ImageSource = source
+    self.LoadToken = self.LoadToken + 1
+    local token = self.LoadToken
+    self.SizeLabel.Text = "检测图片中..."
+
+    task.spawn(function()
+        local success, asset, cachePath = pcall(resolveImageSyncAsset, self.App, source, forceRefresh == true)
+        if token ~= self.LoadToken or self.Destroyed then
+            return
+        end
+        if not success then
+            self.SizeLabel.Text = "图片加载失败"
+            if type(self.OnError) == "function" then
+                task.spawn(self.OnError, asset)
+            end
+            return
+        end
+
+        self.Image.Image = asset
+        self.CachePath = cachePath
+        local sourceSize, detected = detectImageContentSize(
+            self.Image,
+            fallbackSize or self.FallbackImageSize,
+            self.LoadTimeout
+        )
+        if token ~= self.LoadToken or self.Destroyed then
+            return
+        end
+        self:_ApplyDetectedSize(sourceSize, detected)
+        if type(self.OnImageLoaded) == "function" then
+            task.spawn(self.OnImageLoaded, sourceSize, detected)
+        end
+    end)
+    return self
+end
+
+function ImageSyncPanel:SetPartEnabled(name, enabled)
+    self.PartState[tostring(name)] = enabled == true
+    self:_UpdateRegion(tostring(name))
+    self:_UpdateStatus()
+    return self
+end
+
+function ImageSyncPanel:SetParts(parts)
+    if type(parts) ~= "table" then
+        return self
+    end
+    for name in pairs(self.PartState) do
+        self.PartState[name] = false
+    end
+    if #parts > 0 then
+        for _, name in ipairs(parts) do
+            self.PartState[tostring(name)] = true
+        end
+    else
+        for name, enabled in pairs(parts) do
+            self.PartState[tostring(name)] = enabled == true
+        end
+    end
+    for name in pairs(self.RegionButtons) do
+        self:_UpdateRegion(name)
+    end
+    self:_UpdateStatus()
+    return self
+end
+
+function ImageSyncPanel:SetAccentColor(color)
+    if typeof(color) ~= "Color3" then
+        return self
+    end
+    self.AccentColor = color
+    self.AccentLine.BackgroundColor3 = color
+    self.Outline.Color = mixColor(Color3.fromRGB(49, 62, 84), color, 0.22)
+    for name in pairs(self.RegionButtons) do
+        self:_UpdateRegion(name)
+    end
+    return self
+end
+
+function ImageSyncPanel:SetCollapsed(collapsed)
+    self.Collapsed = collapsed == true
+    self.Body.Visible = not self.Collapsed
+    self.CollapseButton.Text = self.Collapsed and "+" or "−"
+    if self.Collapsed then
+        self.Root.Size = UDim2.fromOffset(math.max(self.DisplayImageSize.X + 20, 170), 38)
+    else
+        self.Root.Size = UDim2.fromOffset(self.DisplayImageSize.X + 20, self.DisplayImageSize.Y + 74)
+    end
+    return self
+end
+
+function ImageSyncPanel:SetVisible(visible)
+    self.Root.Visible = visible ~= false
+    return self
+end
+
+function ImageSyncPanel:Toggle()
+    self.Root.Visible = not self.Root.Visible
+    return self.Root.Visible
+end
+
+function ImageSyncPanel:GetImageSize()
+    return self.SourceImageSize, self.DetectedImageSize
+end
+
+function ImageSyncPanel:Destroy()
+    if self.Destroyed then
+        return
+    end
+    self.Destroyed = true
+    for _, connection in ipairs(self.Connections) do
+        connection:Disconnect()
+    end
+    table.clear(self.Connections)
+    if self.Root then
+        self.Root:Destroy()
+    end
+end
+
+function App:CreateImageSyncPanel(options)
+    options = type(options) == "table" and copyOptions(options) or {}
+    self.ImageSyncPanels = self.ImageSyncPanels or {
+    }
+    self.ESPParts = self.ESPParts or {
+    }
+
+    local panel = setmetatable({
+        App = self,
+        Title = options.Title or "部位预览",
+        AccentColor = typeof(options.AccentColor) == "Color3" and options.AccentColor or Color3.fromRGB(86, 156, 255),
+        MaxImageSize = typeof(options.MaxImageSize) == "Vector2" and options.MaxImageSize or Vector2.new(220, 300),
+        MinImageSize = typeof(options.MinImageSize) == "Vector2" and options.MinImageSize or Vector2.new(120, 100),
+        FallbackImageSize = typeof(options.ImageSize) == "Vector2" and options.ImageSize or Vector2.new(512, 512),
+        SourceImageSize = typeof(options.ImageSize) == "Vector2" and options.ImageSize or Vector2.new(512, 512),
+        DisplayImageSize = Vector2.new(180, 180),
+        DetectedImageSize = false,
+        LoadTimeout = options.LoadTimeout or 12,
+        ShowLabels = options.ShowLabels == true,
+        PartState = copyOptions(self.ESPParts),
+        RegionButtons = {
+        },
+        Connections = {
+        },
+        LoadToken = 0,
+        Collapsed = false,
+        Destroyed = false,
+        OnError = options.OnError,
+        OnImageLoaded = options.OnImageLoaded,
+    }, ImageSyncPanel)
+
+    local root = Instance.new("Frame")
+    root.Name = options.Name or "WindUIImageSyncPanel"
+    root.AnchorPoint = options.AnchorPoint or Vector2.new(1, 0.5)
+    root.Position = options.Position or UDim2.new(1, -18, 0.5, 0)
+    root.Size = UDim2.fromOffset(200, 254)
+    root.BackgroundColor3 = Color3.fromRGB(14, 17, 24)
+    root.BackgroundTransparency = 0.06
+    root.BorderSizePixel = 0
+    root.Active = true
+    root.ZIndex = 300
+    root.Visible = options.Visible ~= false
+    root.Parent = self.Library.ScreenGui
+    createSyncCorner(root, 14)
+
+    local outline = Instance.new("UIStroke")
+    outline.Name = "Outline"
+    outline.Color = Color3.fromRGB(49, 62, 84)
+    outline.Transparency = 0.18
+    outline.Thickness = 1
+    outline.Parent = root
+
+    local titleBar = Instance.new("Frame")
+    titleBar.Name = "TitleBar"
+    titleBar.Size = UDim2.new(1, 0, 0, 38)
+    titleBar.BackgroundColor3 = Color3.fromRGB(20, 25, 36)
+    titleBar.BackgroundTransparency = 0.12
+    titleBar.BorderSizePixel = 0
+    titleBar.Active = true
+    titleBar.ZIndex = 302
+    titleBar.Parent = root
+    createSyncCorner(titleBar, 14)
+
+    local titleMask = Instance.new("Frame")
+    titleMask.Size = UDim2.new(1, 0, 0, 14)
+    titleMask.Position = UDim2.new(0, 0, 1, -14)
+    titleMask.BackgroundColor3 = titleBar.BackgroundColor3
+    titleMask.BackgroundTransparency = titleBar.BackgroundTransparency
+    titleMask.BorderSizePixel = 0
+    titleMask.ZIndex = 302
+    titleMask.Parent = titleBar
+
+    local accentLine = Instance.new("Frame")
+    accentLine.Name = "AccentLine"
+    accentLine.Position = UDim2.new(0, 10, 1, -1)
+    accentLine.Size = UDim2.new(1, -20, 0, 1)
+    accentLine.BackgroundColor3 = panel.AccentColor
+    accentLine.BackgroundTransparency = 0.35
+    accentLine.BorderSizePixel = 0
+    accentLine.ZIndex = 305
+    accentLine.Parent = titleBar
+
+    createSyncLabel(titleBar, panel.Title, UDim2.new(1, -72, 1, 0), UDim2.fromOffset(12, 0), 14)
+
+    local collapseButton = Instance.new("TextButton")
+    collapseButton.Name = "Collapse"
+    collapseButton.Size = UDim2.fromOffset(28, 28)
+    collapseButton.Position = UDim2.new(1, -62, 0.5, -14)
+    collapseButton.BackgroundTransparency = 1
+    collapseButton.Text = "−"
+    collapseButton.TextSize = 18
+    collapseButton.TextColor3 = Color3.fromRGB(155, 168, 190)
+    collapseButton.AutoButtonColor = false
+    collapseButton.ZIndex = 306
+    collapseButton.Parent = titleBar
+
+    local closeButton = collapseButton:Clone()
+    closeButton.Name = "Close"
+    closeButton.Position = UDim2.new(1, -32, 0.5, -14)
+    closeButton.Text = "×"
+    closeButton.Parent = titleBar
+
+    local body = Instance.new("Frame")
+    body.Name = "Body"
+    body.Position = UDim2.fromOffset(10, 46)
+    body.Size = UDim2.new(1, -20, 1, -56)
+    body.BackgroundTransparency = 1
+    body.ZIndex = 301
+    body.Parent = root
+
+    local imageHolder = Instance.new("Frame")
+    imageHolder.Name = "ImageHolder"
+    imageHolder.Size = UDim2.fromOffset(180, 180)
+    imageHolder.BackgroundColor3 = Color3.fromRGB(8, 11, 17)
+    imageHolder.BackgroundTransparency = 0.16
+    imageHolder.BorderSizePixel = 0
+    imageHolder.ClipsDescendants = true
+    imageHolder.ZIndex = 302
+    imageHolder.Parent = body
+    createSyncCorner(imageHolder, 10)
+
+    local image = Instance.new("ImageLabel")
+    image.Name = "PreviewImage"
+    image.Size = UDim2.fromScale(1, 1)
+    image.BackgroundTransparency = 1
+    image.ScaleType = Enum.ScaleType.Fit
+    image.ZIndex = 303
+    image.Parent = imageHolder
+
+    local overlay = Instance.new("Frame")
+    overlay.Name = "Regions"
+    overlay.Size = UDim2.fromScale(1, 1)
+    overlay.BackgroundTransparency = 1
+    overlay.ZIndex = 306
+    overlay.Parent = imageHolder
+
+    local sizeLabel = createSyncLabel(body, "等待图片", UDim2.new(0.46, 0, 0, 20), UDim2.new(0, 0, 1, 2), 11)
+    sizeLabel.TextColor3 = Color3.fromRGB(112, 126, 150)
+    local statusLabel = createSyncLabel(body, "未选择显示部位", UDim2.new(0.54, 0, 0, 20), UDim2.new(0.46, 0, 1, 2), 11, Enum.TextXAlignment.Right)
+    statusLabel.TextColor3 = Color3.fromRGB(155, 168, 190)
+    statusLabel.TextTruncate = Enum.TextTruncate.AtEnd
+
+    panel.Root = root
+    panel.TitleBar = titleBar
+    panel.Body = body
+    panel.ImageHolder = imageHolder
+    panel.Image = image
+    panel.Overlay = overlay
+    panel.SizeLabel = sizeLabel
+    panel.StatusLabel = statusLabel
+    panel.CollapseButton = collapseButton
+    panel.AccentLine = accentLine
+    panel.Outline = outline
+    panel:_BuildRegions(options.Regions)
+    panel:_ApplyDetectedSize(panel.SourceImageSize, false)
+
+    collapseButton.MouseButton1Click:Connect(function()
+        panel:SetCollapsed(not panel.Collapsed)
+    end)
+    closeButton.MouseButton1Click:Connect(function()
+        panel:SetVisible(false)
+    end)
+
+    local inputService = game:GetService("UserInputService")
+    local dragging = false
+    local dragInput
+    local dragStart
+    local startPosition
+    table.insert(panel.Connections, titleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPosition = root.Position
+            local endedConnection
+            endedConnection = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    endedConnection:Disconnect()
+                end
+            end)
+        end
+    end))
+    table.insert(panel.Connections, titleBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end))
+    table.insert(panel.Connections, inputService.InputChanged:Connect(function(input)
+        if dragging and input == dragInput then
+            local delta = input.Position - dragStart
+            root.Position = UDim2.new(
+                startPosition.X.Scale,
+                startPosition.X.Offset + delta.X,
+                startPosition.Y.Scale,
+                startPosition.Y.Offset + delta.Y
+            )
+        end
+    end))
+
+    table.insert(self.ImageSyncPanels, panel)
+    if options.Image and options.Image ~= "" then
+        panel:SetImage(options.Image, options.ImageSize, options.ForceRefresh)
+    end
+    return panel
+end
+
+function App:SetESPPart(name, enabled)
+    name = tostring(name)
+    self.ESPParts = self.ESPParts or {
+    }
+    self.ESPParts[name] = enabled == true
+    for _, panel in ipairs(self.ImageSyncPanels or {
+    }) do
+        if not panel.Destroyed then
+            panel:SetPartEnabled(name, enabled)
+        end
+    end
+    if self._ESPPartEvent then
+        self._ESPPartEvent:Fire(name, enabled == true, copyOptions(self.ESPParts))
+    end
+    return self
+end
+
+function App:SetESPParts(parts)
+    self.ESPParts = {
+    }
+    if type(parts) == "table" then
+        if #parts > 0 then
+            for _, name in ipairs(parts) do
+                self.ESPParts[tostring(name)] = true
+            end
+        else
+            for name, enabled in pairs(parts) do
+                self.ESPParts[tostring(name)] = enabled == true
+            end
+        end
+    end
+    for _, panel in ipairs(self.ImageSyncPanels or {
+    }) do
+        if not panel.Destroyed then
+            panel:SetParts(self.ESPParts)
+        end
+    end
+    if self._ESPPartEvent then
+        self._ESPPartEvent:Fire(nil, nil, copyOptions(self.ESPParts))
+    end
+    return self
+end
+
+function App:GetESPParts()
+    return copyOptions(self.ESPParts or {
+    })
+end
+
+function App:OnESPPartsChanged(callback)
+    if type(callback) ~= "function" then
+        error("ESP part callback must be a function", 2)
+    end
+    if not self._ESPPartEvent then
+        self._ESPPartEvent = Instance.new("BindableEvent")
+    end
+    return self._ESPPartEvent.Event:Connect(callback)
+end
+
 function App:SetBackgroundTransparency(value)
     local media = self.Window.UIElements.BackgroundMedia
     if media and media:IsA("ImageLabel") then
@@ -13120,6 +13843,14 @@ function App:Toggle()
     return self.Window:Toggle()
 end
 function App:Destroy()
+    for _, panel in ipairs(self.ImageSyncPanels or {
+    }) do
+        panel:Destroy()
+    end
+    if self._ESPPartEvent then
+        self._ESPPartEvent:Destroy()
+        self._ESPPartEvent = nil
+    end
     self:_DestroyBeauty()
     return self.Window:Destroy()
 end
@@ -13130,8 +13861,9 @@ function CleanAPI.Create(library, options)
     local beautyOptions = options.Beauty
     options.Beauty = nil
     if beautyOptions and beautyOptions ~= false then
-        options.Radius = options.Radius or 18
-        options.ElementsRadius = options.ElementsRadius or 14
+        local beautyStyle = type(beautyOptions) == "table" and tostring(beautyOptions.Style or ""):lower() or ""
+        options.Radius = options.Radius or (beautyStyle == "animedark" and 16 or 18)
+        options.ElementsRadius = options.ElementsRadius or (beautyStyle == "animedark" and 10 or 14)
     end
     local window = library:CreateWindow(options)
     if not window then
