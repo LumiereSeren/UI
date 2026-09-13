@@ -11340,7 +11340,7 @@ local aa = {
     UIScale = 1,
     ConfigManager = nil,
     Version = "0.0.0",
-    BuildVersion = "PY-WindUI-AutoScale-Fix-1",
+    BuildVersion = "PY-WindUI-Beauty-Pack-1",
     Services = a.load('h'),
     OnThemeChangeFunction = nil,
     cloneref = nil,
@@ -11653,7 +11653,15 @@ local Page = {
 }
 Page.__index = Page
 function Page:_create(elementType, options)
-    return callElement(self.Raw, elementType, requireTable(options, elementType .. " options"))
+    local element = callElement(self.Raw, elementType, requireTable(options, elementType .. " options"))
+    if self.App and self.App._RefreshBeautyObjects then
+        task.defer(function()
+            if self.App and self.App.Window and not self.App.Window.Destroyed then
+                self.App:_RefreshBeautyObjects()
+            end
+        end)
+    end
+    return element
 end
 function Page:Element(elementType, options)
     return self:_create(elementType, options or {
@@ -11788,7 +11796,25 @@ function App:Notify(titleOrOptions, content, duration)
     return self.Library:Notify(options)
 end
 function App:SetTheme(themeName)
-    return self.Library:SetTheme(themeName)
+    local theme = self.Library:SetTheme(themeName)
+    if theme and self._Beauty then
+        self._Beauty.MaterialEnabled = false
+        self._Beauty.Palette = {
+            Primary = theme.Primary or theme.Button or Color3.fromRGB(0, 145, 255),
+            Secondary = theme.Icon or theme.Primary or Color3.fromRGB(120, 120, 130),
+            Tertiary = theme.Toggle or theme.Primary or Color3.fromRGB(0, 145, 255),
+            Surface = theme.Background or Color3.fromRGB(16, 16, 18),
+            SurfaceContainer = theme.Accent or theme.Background or Color3.fromRGB(28, 28, 32),
+            SurfaceContainerHigh = theme.Dialog or theme.Accent or Color3.fromRGB(38, 38, 44),
+            Outline = theme.Outline or Color3.fromRGB(120, 120, 130),
+            OnSurface = theme.Text or Color3.fromRGB(245, 245, 248),
+            OnSurfaceVariant = theme.Placeholder or theme.Icon or Color3.fromRGB(180, 180, 190),
+        }
+        if self._RefreshBeautyVisuals then
+            self:_RefreshBeautyVisuals()
+        end
+    end
+    return theme
 end
 function App:SetAccentColor(color)
     if typeof(color) ~= "Color3" then
@@ -11829,6 +11855,805 @@ function App:SetGlassTransparency(value)
     self.Window:SetBackgroundTransparency(value)
     return self
 end
+
+-- WindUI Beauty Pack
+-- Five independent visual systems: Material palette, layered glass,
+-- interaction ripple, hover motion, and animated ambient glow.
+local function mixColor(from, to, amount)
+    return from:Lerp(to, math.clamp(amount, 0, 1))
+end
+
+local function normalizeMaterialMode(mode)
+    return tostring(mode or "Dark"):lower() == "light" and "Light" or "Dark"
+end
+
+local function buildMaterialPalette(seedColor, mode)
+    mode = normalizeMaterialMode(mode)
+    seedColor = typeof(seedColor) == "Color3" and seedColor or Color3.fromRGB(103, 80, 164)
+
+    local hue, saturation, value = Color3.toHSV(seedColor)
+    saturation = math.clamp(math.max(saturation, 0.42), 0.42, 0.88)
+    value = math.clamp(math.max(value, 0.68), 0.68, 0.96)
+    local seed = Color3.fromHSV(hue, saturation, value)
+    local secondarySeed = Color3.fromHSV((hue + 0.055) % 1, math.clamp(saturation * 0.56, 0.28, 0.58), value)
+    local tertiarySeed = Color3.fromHSV((hue + 0.135) % 1, math.clamp(saturation * 0.72, 0.34, 0.72), value)
+    local white = Color3.new(1, 1, 1)
+    local black = Color3.new(0, 0, 0)
+    local palette
+
+    if mode == "Light" then
+        local surface = mixColor(Color3.fromRGB(255, 251, 254), seed, 0.025)
+        palette = {
+            Mode = mode,
+            Seed = seedColor,
+            Primary = mixColor(seed, black, 0.18),
+            OnPrimary = white,
+            PrimaryContainer = mixColor(seed, white, 0.74),
+            OnPrimaryContainer = mixColor(seed, black, 0.68),
+            Secondary = mixColor(secondarySeed, black, 0.28),
+            SecondaryContainer = mixColor(secondarySeed, white, 0.78),
+            Tertiary = mixColor(tertiarySeed, black, 0.22),
+            Surface = surface,
+            SurfaceContainer = mixColor(surface, seed, 0.065),
+            SurfaceContainerHigh = mixColor(surface, seed, 0.105),
+            SurfaceContainerHighest = mixColor(surface, seed, 0.15),
+            OnSurface = Color3.fromRGB(30, 28, 32),
+            OnSurfaceVariant = mixColor(Color3.fromRGB(74, 69, 78), seed, 0.09),
+            Outline = mixColor(Color3.fromRGB(122, 117, 126), seed, 0.12),
+            Error = Color3.fromRGB(186, 26, 26),
+        }
+    else
+        local surface = mixColor(Color3.fromRGB(16, 16, 20), seed, 0.055)
+        palette = {
+            Mode = mode,
+            Seed = seedColor,
+            Primary = mixColor(seed, white, 0.24),
+            OnPrimary = mixColor(seed, black, 0.76),
+            PrimaryContainer = mixColor(seed, black, 0.5),
+            OnPrimaryContainer = mixColor(seed, white, 0.76),
+            Secondary = mixColor(secondarySeed, white, 0.32),
+            SecondaryContainer = mixColor(secondarySeed, black, 0.48),
+            Tertiary = mixColor(tertiarySeed, white, 0.28),
+            Surface = surface,
+            SurfaceContainer = mixColor(surface, white, 0.055),
+            SurfaceContainerHigh = mixColor(surface, white, 0.09),
+            SurfaceContainerHighest = mixColor(surface, white, 0.13),
+            OnSurface = Color3.fromRGB(238, 232, 240),
+            OnSurfaceVariant = mixColor(Color3.fromRGB(202, 196, 208), seed, 0.08),
+            Outline = mixColor(Color3.fromRGB(147, 143, 153), seed, 0.12),
+            Error = Color3.fromRGB(255, 180, 171),
+        }
+    end
+
+    return palette
+end
+
+local function materialThemeFromPalette(palette)
+    local name = "MaterialYou" .. palette.Mode
+    return {
+        Name = name,
+        Primary = palette.Primary,
+        White = Color3.new(1, 1, 1),
+        Black = Color3.new(0, 0, 0),
+        Accent = palette.SurfaceContainer,
+        Dialog = palette.SurfaceContainerHigh,
+        Outline = palette.Outline,
+        Text = palette.OnSurface,
+        Placeholder = palette.OnSurfaceVariant,
+        Background = palette.Surface,
+        Button = palette.Primary,
+        Icon = palette.OnSurfaceVariant,
+        WindowBackground = palette.Surface,
+        WindowShadow = Color3.new(0, 0, 0),
+        WindowTopbarTitle = palette.OnSurface,
+        WindowTopbarAuthor = palette.OnSurfaceVariant,
+        WindowTopbarIcon = palette.OnSurfaceVariant,
+        WindowTopbarButtonIcon = palette.OnSurfaceVariant,
+        TabBackground = palette.SecondaryContainer,
+        TabTitle = palette.OnSurface,
+        TabIcon = palette.OnSurfaceVariant,
+        ElementBackground = palette.SurfaceContainerHigh,
+        ElementTitle = palette.OnSurface,
+        ElementDesc = palette.OnSurfaceVariant,
+        ElementIcon = palette.OnSurfaceVariant,
+        PopupBackground = palette.SurfaceContainerHigh,
+        PopupTitle = palette.OnSurface,
+        PopupContent = palette.OnSurfaceVariant,
+        PopupIcon = palette.Primary,
+        DialogBackground = palette.SurfaceContainerHigh,
+        DialogTitle = palette.OnSurface,
+        DialogContent = palette.OnSurfaceVariant,
+        DialogIcon = palette.Primary,
+        Toggle = palette.Primary,
+        ToggleBar = palette.OnPrimary,
+        Checkbox = palette.Primary,
+        CheckboxIcon = palette.OnPrimary,
+        Slider = palette.Primary,
+        SliderThumb = palette.OnPrimary,
+        SliderIconFrom = palette.OnSurfaceVariant,
+        SliderIconTo = palette.OnSurfaceVariant,
+        Tooltip = palette.SurfaceContainerHighest,
+        TooltipText = palette.OnSurface,
+        TooltipSecondary = palette.Primary,
+        TooltipSecondaryText = palette.OnPrimary,
+        MaterialPrimaryContainer = palette.PrimaryContainer,
+        MaterialOnPrimaryContainer = palette.OnPrimaryContainer,
+        MaterialSecondary = palette.Secondary,
+        MaterialTertiary = palette.Tertiary,
+        MaterialSurfaceContainer = palette.SurfaceContainer,
+        MaterialSurfaceContainerHigh = palette.SurfaceContainerHigh,
+        MaterialSurfaceContainerHighest = palette.SurfaceContainerHighest,
+        MaterialError = palette.Error,
+    }
+end
+
+local function getBeautyState(self)
+    if self._Beauty then
+        return self._Beauty
+    end
+
+    local previousTheme = "Dark"
+    pcall(function()
+        previousTheme = self.Library:GetCurrentTheme()
+    end)
+
+    self._Beauty = {
+        Enabled = false,
+        MaterialEnabled = false,
+        PreviousTheme = previousTheme,
+        Palette = buildMaterialPalette(Color3.fromRGB(103, 80, 164), "Dark"),
+        LayeredGlass = false,
+        Ripple = false,
+        HoverMotion = false,
+        AmbientGlow = false,
+        RippleBound = setmetatable({}, {
+            __mode = "k",
+        }),
+        MotionBound = setmetatable({}, {
+            __mode = "k",
+        }),
+        MotionScales = setmetatable({}, {
+            __mode = "k",
+        }),
+        GlassOriginals = setmetatable({}, {
+            __mode = "k",
+        }),
+        Connections = {},
+        Destroyed = false,
+    }
+    return self._Beauty
+end
+
+local function rememberBeautyProperty(state, object, property)
+    local saved = state.GlassOriginals[object]
+    if not saved then
+        saved = {}
+        state.GlassOriginals[object] = saved
+    end
+    if saved[property] == nil then
+        saved[property] = object[property]
+    end
+end
+
+local function addBeautyConnection(state, connection)
+    table.insert(state.Connections, connection)
+    return connection
+end
+
+local function addCorner(object, radius, name)
+    local corner = object:FindFirstChild(name or "WindUIBeautyCorner")
+    if not corner then
+        corner = Instance.new("UICorner")
+        corner.Name = name or "WindUIBeautyCorner"
+        corner.Parent = object
+    end
+    corner.CornerRadius = UDim.new(0, radius)
+    return corner
+end
+
+local function getOrCreateFrame(parent, name)
+    local frame = parent and parent:FindFirstChild(name)
+    if frame and not frame:IsA("Frame") then
+        frame:Destroy()
+        frame = nil
+    end
+    if not frame and parent then
+        frame = Instance.new("Frame")
+        frame.Name = name
+        frame.BorderSizePixel = 0
+        frame.Active = false
+        frame.Parent = parent
+    end
+    return frame
+end
+
+local function refreshMaterialSurfaces(self)
+    local state = getBeautyState(self)
+    if not state.LayeredGlass then
+        return
+    end
+
+    local cardTransparency = state.GlassOptions and state.GlassOptions.CardTransparency or 0.87
+    local tabTransparency = state.GlassOptions and state.GlassOptions.TabTransparency or 0.9
+    for object, themeObject in pairs(self.Library.Creator.Objects) do
+        if object and object.Parent and (object:IsA("ImageLabel") or object:IsA("ImageButton")) then
+            local properties = themeObject.Properties or {}
+            local colorRole = properties.ImageColor3
+            if colorRole == "ElementBackground" then
+                rememberBeautyProperty(state, object, "ImageTransparency")
+                object.ImageTransparency = math.clamp(cardTransparency, 0, 1)
+            elseif colorRole == "TabBackground" then
+                rememberBeautyProperty(state, object, "ImageTransparency")
+                object.ImageTransparency = math.clamp(tabTransparency, 0, 1)
+            end
+        end
+    end
+end
+
+local function playRipple(self, button, inputPosition)
+    local state = getBeautyState(self)
+    if not state.Ripple or state.Destroyed or not button.Parent then
+        return
+    end
+
+    local size = button.AbsoluteSize
+    if size.X < 8 or size.Y < 8 then
+        return
+    end
+
+    local overlay = button:FindFirstChild("WindUIBeautyRippleLayer")
+    if not overlay then
+        overlay = Instance.new("Frame")
+        overlay.Name = "WindUIBeautyRippleLayer"
+        overlay.BackgroundTransparency = 1
+        overlay.BorderSizePixel = 0
+        overlay.ClipsDescendants = true
+        overlay.Active = false
+        overlay.Selectable = false
+        overlay.Size = UDim2.fromScale(1, 1)
+        overlay.Position = UDim2.fromScale(0, 0)
+        overlay.ZIndex = button.ZIndex + 20
+        overlay.Parent = button
+        addCorner(overlay, math.clamp(math.floor(size.Y / 2), 8, 18), "RippleCorner")
+    end
+
+    local localPosition
+    if typeof(inputPosition) == "Vector2" then
+        localPosition = inputPosition - button.AbsolutePosition
+    else
+        localPosition = size / 2
+    end
+
+    local diameter = math.max(size.X, size.Y) * 2.15
+    local ripple = Instance.new("Frame")
+    ripple.Name = "Ripple"
+    ripple.AnchorPoint = Vector2.new(0.5, 0.5)
+    ripple.Position = UDim2.fromOffset(localPosition.X, localPosition.Y)
+    ripple.Size = UDim2.fromOffset(0, 0)
+    ripple.BorderSizePixel = 0
+    local rippleColor = state.RippleOptions and state.RippleOptions.Color
+    if typeof(rippleColor) ~= "Color3" then
+        rippleColor = state.Palette.Primary or Color3.new(1, 1, 1)
+    end
+    ripple.BackgroundColor3 = rippleColor
+    ripple.BackgroundTransparency = state.RippleOptions and state.RippleOptions.StartTransparency or 0.64
+    ripple.ZIndex = overlay.ZIndex
+    ripple.Parent = overlay
+    addCorner(ripple, 999, "Circle")
+
+    local duration = math.clamp(
+        tonumber(state.RippleOptions and state.RippleOptions.Duration) or 0.48,
+        0.2,
+        1.2
+    )
+    self.Library.Creator.Tween(ripple, duration, {
+        Size = UDim2.fromOffset(diameter, diameter),
+        BackgroundTransparency = 1,
+    }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out):Play()
+    task.delay(duration + 0.05, function()
+        if ripple.Parent then
+            ripple:Destroy()
+        end
+    end)
+end
+
+local function bindRippleButton(self, button)
+    local state = getBeautyState(self)
+    if state.RippleBound[button] or not button:IsA("GuiButton") then
+        return
+    end
+    state.RippleBound[button] = true
+    addBeautyConnection(state, button.InputBegan:Connect(function(input)
+        local inputType = input.UserInputType
+        if inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch then
+            playRipple(self, button, Vector2.new(input.Position.X, input.Position.Y))
+        end
+    end))
+end
+
+local function tweenMotionScale(self, scale, target)
+    if not scale or not scale.Parent then
+        return
+    end
+    self.Library.Creator.Tween(scale, 0.16, {
+        Scale = target,
+    }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out):Play()
+end
+
+local function bindMotionButton(self, button)
+    local state = getBeautyState(self)
+    if state.MotionBound[button] or not button:IsA("GuiButton") then
+        return
+    end
+    state.MotionBound[button] = true
+
+    local scale = button:FindFirstChild("WindUIBeautyMotionScale")
+    if not scale then
+        scale = Instance.new("UIScale")
+        scale.Name = "WindUIBeautyMotionScale"
+        scale.Scale = 1
+        scale.Parent = button
+    end
+    state.MotionScales[button] = scale
+    local hovering = false
+
+    addBeautyConnection(state, button.MouseEnter:Connect(function()
+        hovering = true
+        if state.HoverMotion and button.AbsoluteSize.X >= 90 and button.AbsoluteSize.Y >= 30 then
+            local strength = math.clamp(
+                tonumber(state.MotionOptions and state.MotionOptions.Strength) or 0.012,
+                0.004,
+                0.035
+            )
+            tweenMotionScale(self, scale, 1 + strength)
+        end
+    end))
+    addBeautyConnection(state, button.MouseLeave:Connect(function()
+        hovering = false
+        tweenMotionScale(self, scale, 1)
+    end))
+    addBeautyConnection(state, button.InputBegan:Connect(function(input)
+        local inputType = input.UserInputType
+        if state.HoverMotion and (inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch) then
+            tweenMotionScale(self, scale, 0.988)
+        end
+    end))
+    addBeautyConnection(state, button.InputEnded:Connect(function(input)
+        local inputType = input.UserInputType
+        if inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch then
+            local strength = math.clamp(
+                tonumber(state.MotionOptions and state.MotionOptions.Strength) or 0.012,
+                0.004,
+                0.035
+            )
+            tweenMotionScale(self, scale, state.HoverMotion and hovering and (1 + strength) or 1)
+        end
+    end))
+end
+
+local function ensureBeautyWatcher(self)
+    local state = getBeautyState(self)
+    if state.DescendantConnection then
+        return
+    end
+    local root = self.Window.UIElements.Main
+    state.DescendantConnection = addBeautyConnection(state, root.DescendantAdded:Connect(function(object)
+        task.defer(function()
+            if state.Destroyed or not object.Parent then
+                return
+            end
+            if object:IsA("GuiButton") then
+                bindRippleButton(self, object)
+                bindMotionButton(self, object)
+            end
+            refreshMaterialSurfaces(self)
+        end)
+    end))
+end
+
+function App:_RefreshBeautyObjects()
+    local state = getBeautyState(self)
+    if state.Destroyed then
+        return self
+    end
+    ensureBeautyWatcher(self)
+    for _, object in ipairs(self.Window.UIElements.Main:GetDescendants()) do
+        if object:IsA("GuiButton") then
+            bindRippleButton(self, object)
+            bindMotionButton(self, object)
+        end
+    end
+    refreshMaterialSurfaces(self)
+    return self
+end
+
+function App:_RefreshBeautyVisuals()
+    local state = getBeautyState(self)
+    local palette = state.Palette
+
+    if state.LayeredGlass then
+        self:SetLayeredGlass(true, state.GlassOptions)
+    end
+
+    local glowOptions = state.GlowOptions or {}
+    local colorA = typeof(glowOptions.ColorA) == "Color3" and glowOptions.ColorA or palette.Primary
+    local colorB = typeof(glowOptions.ColorB) == "Color3" and glowOptions.ColorB or palette.Tertiary
+    local glowSequence = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, colorA),
+        ColorSequenceKeypoint.new(0.5, colorB),
+        ColorSequenceKeypoint.new(1, colorA),
+    })
+    if state.GlowGradient then
+        state.GlowGradient.Color = glowSequence
+    end
+    if state.SoftGlowGradient then
+        state.SoftGlowGradient.Color = glowSequence
+    end
+    return self
+end
+
+-- Beauty feature 1: seed-driven Material You palette.
+function App:SetMaterialPalette(seedColor, mode)
+    local state = getBeautyState(self)
+    local palette = buildMaterialPalette(seedColor or state.Palette.Seed, mode or state.Palette.Mode)
+    local theme = materialThemeFromPalette(palette)
+
+    self:DisableRainbowAccent()
+    self.Library:AddTheme(theme)
+    self.Library:SetTheme(theme.Name)
+    state.Enabled = true
+    state.MaterialEnabled = true
+    state.Palette = palette
+    self:_RefreshBeautyVisuals()
+    return palette
+end
+
+-- Beauty feature 2: tonal, layered glass surfaces for the window regions and cards.
+function App:SetLayeredGlass(enabled, options)
+    local state = getBeautyState(self)
+    enabled = enabled ~= false
+    options = type(options) == "table" and copyOptions(options) or state.GlassOptions or {}
+    state.GlassOptions = options
+    state.LayeredGlass = enabled
+
+    local root = self.Window.UIElements.Main
+    local palette = state.Palette
+    local topbar = self.Window.UIElements.TopbarFrame
+    local sidebar = self.Window.UIElements.SideBarContainer
+    local mainbar = self.Window.UIElements.MainBar
+    local background = root:FindFirstChild("Background")
+
+    if not enabled then
+        for object, properties in pairs(state.GlassOriginals) do
+            if object and object.Parent then
+                for property, value in pairs(properties) do
+                    pcall(function()
+                        object[property] = value
+                    end)
+                end
+            end
+        end
+        if state.GlassScrim then
+            state.GlassScrim.Visible = false
+        end
+        if state.TopbarDivider then
+            state.TopbarDivider.Visible = false
+        end
+        return self
+    end
+
+    state.Enabled = true
+    local regionTransparency = math.clamp(tonumber(options.RegionTransparency) or 0.34, 0.08, 0.92)
+    local topbarTransparency = math.clamp(tonumber(options.TopbarTransparency) or 0.28, 0.08, 0.92)
+    local scrimTransparency = math.clamp(tonumber(options.ScrimTransparency) or 0.5, 0.12, 0.96)
+
+    for _, object in ipairs({
+        sidebar,
+        mainbar,
+        topbar,
+    }) do
+        if object then
+            rememberBeautyProperty(state, object, "BackgroundColor3")
+            rememberBeautyProperty(state, object, "BackgroundTransparency")
+        end
+    end
+
+    if sidebar then
+        sidebar.BackgroundColor3 = palette.SurfaceContainer
+        sidebar.BackgroundTransparency = regionTransparency
+    end
+    if mainbar then
+        mainbar.BackgroundColor3 = palette.SurfaceContainerHigh
+        mainbar.BackgroundTransparency = math.clamp(regionTransparency + 0.08, 0, 1)
+    end
+    if topbar then
+        topbar.BackgroundColor3 = palette.SurfaceContainerHigh
+        topbar.BackgroundTransparency = topbarTransparency
+    end
+
+    if background then
+        local scrim = getOrCreateFrame(background, "WindUIBeautyGlassScrim")
+        scrim.Size = UDim2.fromScale(1, 1)
+        scrim.Position = UDim2.fromScale(0, 0)
+        scrim.ZIndex = 2
+        scrim.BackgroundColor3 = palette.Surface
+        scrim.BackgroundTransparency = scrimTransparency
+        scrim.Visible = true
+        addCorner(scrim, self.Window.UICorner, "GlassCorner")
+        local gradient = scrim:FindFirstChild("GlassGradient")
+        if not gradient then
+            gradient = Instance.new("UIGradient")
+            gradient.Name = "GlassGradient"
+            gradient.Rotation = 90
+            gradient.Parent = scrim
+        end
+        gradient.Color = ColorSequence.new(palette.SurfaceContainerHigh, palette.Surface)
+        gradient.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.04),
+            NumberSequenceKeypoint.new(0.48, 0.36),
+            NumberSequenceKeypoint.new(1, 0.12),
+        })
+        state.GlassScrim = scrim
+    end
+
+    if topbar then
+        local divider = getOrCreateFrame(topbar, "WindUIBeautyTopbarDivider")
+        divider.AnchorPoint = Vector2.new(0, 1)
+        divider.Position = UDim2.new(0, 14, 1, 0)
+        divider.Size = UDim2.new(1, -28, 0, 1)
+        divider.BackgroundColor3 = Color3.new(1, 1, 1)
+        divider.BackgroundTransparency = 0
+        divider.ZIndex = 98
+        divider.Visible = true
+        local gradient = divider:FindFirstChild("DividerGradient")
+        if not gradient then
+            gradient = Instance.new("UIGradient")
+            gradient.Name = "DividerGradient"
+            gradient.Parent = divider
+        end
+        gradient.Color = ColorSequence.new(palette.Primary, palette.Tertiary)
+        gradient.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.22, 0.45),
+            NumberSequenceKeypoint.new(0.5, 0.12),
+            NumberSequenceKeypoint.new(0.78, 0.45),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        state.TopbarDivider = divider
+    end
+
+    refreshMaterialSurfaces(self)
+    return self
+end
+
+-- Beauty feature 3: touch- and mouse-aware Material ripple feedback.
+function App:SetRippleEffect(enabled, options)
+    local state = getBeautyState(self)
+    state.Ripple = enabled ~= false
+    state.RippleOptions = type(options) == "table" and copyOptions(options) or state.RippleOptions or {}
+    state.Enabled = state.Enabled or state.Ripple
+    self:_RefreshBeautyObjects()
+    if not state.Ripple then
+        for _, object in ipairs(self.Window.UIElements.Main:GetDescendants()) do
+            if object.Name == "WindUIBeautyRippleLayer" then
+                object:Destroy()
+            end
+        end
+    end
+    return self
+end
+
+-- Beauty feature 4: restrained card lift and press motion without resizing the window.
+function App:SetHoverMotion(enabled, options)
+    local state = getBeautyState(self)
+    state.HoverMotion = enabled ~= false
+    state.MotionOptions = type(options) == "table" and copyOptions(options) or state.MotionOptions or {}
+    state.Enabled = state.Enabled or state.HoverMotion
+    self:_RefreshBeautyObjects()
+    if not state.HoverMotion then
+        for _, scale in pairs(state.MotionScales) do
+            tweenMotionScale(self, scale, 1)
+        end
+    end
+    return self
+end
+
+-- Beauty feature 5: dual-layer animated gradient glow around the window.
+function App:SetAmbientGlow(enabled, options)
+    local state = getBeautyState(self)
+    enabled = enabled ~= false
+    options = type(options) == "table" and copyOptions(options) or state.GlowOptions or {}
+    state.GlowOptions = options
+    state.AmbientGlow = enabled
+
+    if state.GlowTween then
+        state.GlowTween:Cancel()
+        state.GlowTween = nil
+    end
+    if state.SoftGlowTween then
+        state.SoftGlowTween:Cancel()
+        state.SoftGlowTween = nil
+    end
+    if state.GlowStroke then
+        state.GlowStroke.Enabled = enabled
+    end
+    if state.SoftGlowStroke then
+        state.SoftGlowStroke.Enabled = enabled
+    end
+    if not enabled then
+        return self
+    end
+
+    state.Enabled = true
+    local root = self.Window.UIElements.Main
+    local inner = root:FindFirstChild("WindUIBeautyGlow")
+    if not inner then
+        inner = Instance.new("UIStroke")
+        inner.Name = "WindUIBeautyGlow"
+        inner.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        inner.LineJoinMode = Enum.LineJoinMode.Round
+        inner.Parent = root
+    end
+    inner.Thickness = math.clamp(tonumber(options.Thickness) or 1.45, 0.7, 3)
+    inner.Transparency = math.clamp(tonumber(options.Transparency) or 0.12, 0, 0.9)
+    inner.Enabled = true
+
+    local soft = root:FindFirstChild("WindUIBeautySoftGlow")
+    if not soft then
+        soft = Instance.new("UIStroke")
+        soft.Name = "WindUIBeautySoftGlow"
+        soft.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        soft.LineJoinMode = Enum.LineJoinMode.Round
+        soft.Parent = root
+    end
+    soft.Thickness = math.clamp(tonumber(options.SoftThickness) or 4, 2, 8)
+    soft.Transparency = math.clamp(tonumber(options.SoftTransparency) or 0.78, 0.45, 0.96)
+    soft.Enabled = true
+
+    local gradient = inner:FindFirstChild("GlowGradient")
+    if not gradient then
+        gradient = Instance.new("UIGradient")
+        gradient.Name = "GlowGradient"
+        gradient.Parent = inner
+    end
+    local softGradient = soft:FindFirstChild("GlowGradient")
+    if not softGradient then
+        softGradient = Instance.new("UIGradient")
+        softGradient.Name = "GlowGradient"
+        softGradient.Parent = soft
+    end
+
+    gradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.08),
+        NumberSequenceKeypoint.new(0.5, 0.58),
+        NumberSequenceKeypoint.new(1, 0.08),
+    })
+    softGradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.42),
+        NumberSequenceKeypoint.new(0.5, 0.82),
+        NumberSequenceKeypoint.new(1, 0.42),
+    })
+
+    state.GlowStroke = inner
+    state.SoftGlowStroke = soft
+    state.GlowGradient = gradient
+    state.SoftGlowGradient = softGradient
+    self:_RefreshBeautyVisuals()
+
+    local speed = math.clamp(tonumber(options.Speed) or 12, 4, 30)
+    gradient.Rotation = 0
+    softGradient.Rotation = 360
+    state.GlowTween = self.Library.Creator.Tween(gradient, speed, {
+        Rotation = 360,
+    }, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1)
+    state.SoftGlowTween = self.Library.Creator.Tween(softGradient, speed * 1.35, {
+        Rotation = 0,
+    }, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1)
+    state.GlowTween:Play()
+    state.SoftGlowTween:Play()
+    return self
+end
+
+function App:SetBeautyMode(options)
+    if options == false then
+        local state = getBeautyState(self)
+        state.Enabled = false
+        self:SetLayeredGlass(false)
+        self:SetRippleEffect(false)
+        self:SetHoverMotion(false)
+        self:SetAmbientGlow(false)
+        if state.MaterialEnabled and self.Library.Themes[state.PreviousTheme] then
+            self.Library:SetTheme(state.PreviousTheme)
+        end
+        state.MaterialEnabled = false
+        return self
+    end
+
+    options = (options == true or options == nil) and {} or options
+    if type(options) ~= "table" then
+        error("Beauty options must be a table, true, or false", 2)
+    end
+    if options.Enabled == false then
+        return self:SetBeautyMode(false)
+    end
+
+    local state = getBeautyState(self)
+    state.Enabled = true
+    local useMaterial = options.MaterialPalette
+    if useMaterial == nil then
+        useMaterial = options.Material
+    end
+    if useMaterial == nil then
+        useMaterial = true
+    end
+    if useMaterial then
+        self:SetMaterialPalette(
+            options.SeedColor or options.Seed or state.Palette.Seed,
+            options.Mode or state.Palette.Mode
+        )
+    end
+
+    self:SetLayeredGlass(options.LayeredGlass ~= false, {
+        RegionTransparency = options.RegionTransparency,
+        TopbarTransparency = options.TopbarTransparency,
+        ScrimTransparency = options.ScrimTransparency,
+        CardTransparency = options.CardTransparency,
+        TabTransparency = options.TabTransparency,
+    })
+    self:SetRippleEffect(options.Ripple ~= false, {
+        Color = options.RippleColor,
+        Duration = options.RippleDuration,
+        StartTransparency = options.RippleTransparency,
+    })
+    self:SetHoverMotion(options.HoverMotion ~= false, {
+        Strength = options.MotionStrength,
+    })
+    self:SetAmbientGlow(options.AmbientGlow ~= false, {
+        ColorA = options.GlowColorA,
+        ColorB = options.GlowColorB,
+        Speed = options.GlowSpeed,
+        Thickness = options.GlowThickness,
+        Transparency = options.GlowTransparency,
+        SoftThickness = options.SoftGlowThickness,
+        SoftTransparency = options.SoftGlowTransparency,
+    })
+    return self
+end
+
+function App:GetBeautyState()
+    local state = getBeautyState(self)
+    return {
+        Enabled = state.Enabled,
+        MaterialPalette = state.MaterialEnabled,
+        Mode = state.Palette.Mode,
+        SeedColor = state.Palette.Seed,
+        LayeredGlass = state.LayeredGlass,
+        Ripple = state.Ripple,
+        HoverMotion = state.HoverMotion,
+        AmbientGlow = state.AmbientGlow,
+    }
+end
+
+function App:_DestroyBeauty()
+    local state = self._Beauty
+    if not state then
+        return
+    end
+    state.Destroyed = true
+    if state.GlowTween then
+        state.GlowTween:Cancel()
+    end
+    if state.SoftGlowTween then
+        state.SoftGlowTween:Cancel()
+    end
+    for _, connection in ipairs(state.Connections) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+    table.clear(state.Connections)
+end
+
 function App:SetBackgroundImage(image, transparency)
     local media = self.Window.UIElements.BackgroundMedia
     if not media or not media:IsA("ImageLabel") then
@@ -12295,22 +13120,33 @@ function App:Toggle()
     return self.Window:Toggle()
 end
 function App:Destroy()
+    self:_DestroyBeauty()
     return self.Window:Destroy()
 end
 function CleanAPI.Create(library, options)
     options = copyOptions(requireTable(options, "window options"))
     options.Title = options.Title or options.Name or "WindUI"
     options.Folder = options.Folder or options.Title
+    local beautyOptions = options.Beauty
+    options.Beauty = nil
+    if beautyOptions and beautyOptions ~= false then
+        options.Radius = options.Radius or 18
+        options.ElementsRadius = options.ElementsRadius or 14
+    end
     local window = library:CreateWindow(options)
     if not window then
         return nil
     end
-    return setmetatable({
+    local app = setmetatable({
         Library = library,
         Window = window,
         Pages = {
         },
     }, App)
+    if beautyOptions and beautyOptions ~= false then
+        app:SetBeautyMode(beautyOptions)
+    end
+    return app
 end
 function aa.Create(ax, ay)
     return CleanAPI.Create(aa, ay)
