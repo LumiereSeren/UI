@@ -11340,7 +11340,7 @@ local aa = {
     UIScale = 1,
     ConfigManager = nil,
     Version = "0.0.0",
-    BuildVersion = "PY-WindUI-Skeleton-Sync-1",
+    BuildVersion = "PY-WindUI-Skeleton-Sync-2",
     Services = a.load('h'),
     OnThemeChangeFunction = nil,
     cloneref = nil,
@@ -13520,6 +13520,7 @@ end
 
 function ImageSyncPanel:AnalyzeParts(endpoint, imageUrl, options)
     options = type(options) == "table" and copyOptions(options) or {}
+    local visionHttpService = game:GetService("HttpService")
     if type(endpoint) ~= "string" or not endpoint:match("^https://") then
         error("Vision endpoint must be an HTTPS URL", 2)
     end
@@ -13545,7 +13546,7 @@ function ImageSyncPanel:AnalyzeParts(endpoint, imageUrl, options)
                 Url = endpoint,
                 Method = "POST",
                 Headers = headers,
-                Body = HttpService:JSONEncode({
+                Body = visionHttpService:JSONEncode({
                     image_url = imageUrl,
                     model = options.Model or "qwen3-vl-plus",
                 }),
@@ -13554,7 +13555,11 @@ function ImageSyncPanel:AnalyzeParts(endpoint, imageUrl, options)
             if statusCode < 200 or statusCode >= 300 then
                 error("Vision service HTTP " .. tostring(statusCode) .. ": " .. tostring(response.Body))
             end
-            local payload = HttpService:JSONDecode(response.Body)
+            local responseBody = response.Body or response.body
+            if type(responseBody) ~= "string" or responseBody == "" then
+                error("Vision service returned an empty response")
+            end
+            local payload = visionHttpService:JSONDecode(responseBody)
             if payload.error then
                 error(type(payload.error) == "table" and payload.error.message or tostring(payload.error))
             end
