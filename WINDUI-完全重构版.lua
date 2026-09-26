@@ -11340,7 +11340,7 @@ local aa = {
     UIScale = 1,
     ConfigManager = nil,
     Version = "0.0.0",
-    BuildVersion = "PY-WindUI-Skeleton-Sync-3",
+    BuildVersion = "PY-WindUI-Frosted-1",
     Services = a.load('h'),
     OnThemeChangeFunction = nil,
     cloneref = nil,
@@ -11654,8 +11654,10 @@ local Page = {
 Page.__index = Page
 function Page:_create(elementType, options)
     local element = callElement(self.Raw, elementType, requireTable(options, elementType .. " options"))
-    if self.App and self.App._RefreshBeautyObjects then
+    if self.App and self.App._RefreshBeautyObjects and not self.App._BeautyRefreshQueued then
+        self.App._BeautyRefreshQueued = true
         task.defer(function()
+            self.App._BeautyRefreshQueued = false
             if self.App and self.App.Window and not self.App.Window.Destroyed then
                 self.App:_RefreshBeautyObjects()
             end
@@ -11836,9 +11838,9 @@ function App:EnableRainbowAccent(speed)
     task.spawn(function()
         local hue = 0
         while self.RainbowToken == token and not self.Window.Destroyed do
-            hue = (hue + cycleSpeed * 0.02) % 1
+            hue = (hue + cycleSpeed * 0.1) % 1
             self:SetAccentColor(Color3.fromHSV(hue, 0.78, 1))
-            task.wait(0.02)
+            task.wait(0.1)
         end
     end)
     return self
@@ -12173,7 +12175,7 @@ end
 
 local function bindRippleButton(self, button)
     local state = getBeautyState(self)
-    if state.RippleBound[button] or not button:IsA("GuiButton") then
+    if not state.Ripple or state.RippleBound[button] or not button:IsA("GuiButton") then
         return
     end
     state.RippleBound[button] = true
@@ -12186,7 +12188,7 @@ local function bindRippleButton(self, button)
 end
 
 local function tweenMotionScale(self, scale, target)
-    if not scale or not scale.Parent then
+    if not scale or not scale.Parent or scale.Scale == target then
         return
     end
     self.Library.Creator.Tween(scale, 0.16, {
@@ -12196,7 +12198,7 @@ end
 
 local function bindMotionButton(self, button)
     local state = getBeautyState(self)
-    if state.MotionBound[button] or not button:IsA("GuiButton") then
+    if not state.HoverMotion or state.MotionBound[button] or not button:IsA("GuiButton") then
         return
     end
     state.MotionBound[button] = true
@@ -12251,14 +12253,22 @@ local function ensureBeautyWatcher(self)
         return
     end
     local root = self.Window.UIElements.Main
+    local pendingButtons = {}
+    local scheduled = false
     state.DescendantConnection = addBeautyConnection(state, root.DescendantAdded:Connect(function(object)
+        if object:IsA("GuiButton") then pendingButtons[object] = true end
+        if scheduled then return end
+        scheduled = true
         task.defer(function()
-            if state.Destroyed or not object.Parent then
-                return
-            end
-            if object:IsA("GuiButton") then
-                bindRippleButton(self, object)
-                bindMotionButton(self, object)
+            scheduled = false
+            local batch = pendingButtons
+            pendingButtons = {}
+            if state.Destroyed or self.Window.Destroyed then return end
+            for button in pairs(batch) do
+                if button.Parent then
+                    bindRippleButton(self, button)
+                    bindMotionButton(self, button)
+                end
             end
             refreshMaterialSurfaces(self)
         end)
@@ -12372,19 +12382,81 @@ function App:SetAnimeDarkStyle(options)
         Strength = options.MotionStrength or 0.006,
     })
     self:SetLayeredGlass(options.LayeredGlass ~= false, {
-        RegionTransparency = options.RegionTransparency or 0.58,
-        TopbarTransparency = options.TopbarTransparency or 0.62,
-        ScrimTransparency = options.ScrimTransparency or 0.72,
-        CardTransparency = options.CardTransparency or 0.95,
-        TabTransparency = options.TabTransparency or 0.96,
+        RegionTransparency = options.RegionTransparency or 0.52,
+        TopbarTransparency = options.TopbarTransparency or 0.46,
+        ScrimTransparency = options.ScrimTransparency or 0.63,
+        CardTransparency = options.CardTransparency or 0.89,
+        TabTransparency = options.TabTransparency or 0.91,
         DividerEnabled = options.DividerEnabled == true,
         DividerTransparency = options.DividerTransparency or 0.55,
     })
     self:SetShadow(options.ShadowTransparency or 0.82, Color3.fromRGB(4, 8, 16))
+    self:SetFrostedGlass(options.FrostedGlass ~= false, {
+        BlurSize = options.BlurSize or 8,
+        BodyTransparency = options.BodyTransparency or 0.56,
+        Tint = options.GlassTint or Color3.fromRGB(24, 34, 52),
+    })
 
     local search = self.Window.UIElements.TopbarSearch
     if search and (search:IsA("ImageLabel") or search:IsA("ImageButton")) then
         search.ImageTransparency = 0.91
+    end
+    return self
+end
+
+-- Lighting blur affects the 3D scene behind ScreenGui, not GUI/video pixels.
+-- The translucent body supplies the localized frosted surface.
+function App:SetFrostedGlass(enabled, options)
+    options = type(options) == "table" and options or {}
+    local state = getBeautyState(self)
+    local root = self.Window.UIElements.Main
+    local background = root and root:FindFirstChild("Background")
+    state.Frosted = enabled == true
+    if not state.Frosted then
+        if state.FrostBlur then
+            state.FrostBlur:Destroy()
+            state.FrostBlur = nil
+        end
+        if state.FrostStroke then state.FrostStroke:Destroy(); state.FrostStroke = nil end
+        if background and state.FrostBackgroundColor then
+            background.BackgroundColor3 = state.FrostBackgroundColor
+            background.BackgroundTransparency = state.FrostBackgroundTransparency
+        end
+        return self
+    end
+    if background then
+        if not state.FrostBackgroundColor then
+            state.FrostBackgroundColor = background.BackgroundColor3
+            state.FrostBackgroundTransparency = background.BackgroundTransparency
+        end
+        background.BackgroundColor3 = typeof(options.Tint) == "Color3"
+            and options.Tint or Color3.fromRGB(24, 34, 52)
+        background.BackgroundTransparency = math.clamp(tonumber(options.BodyTransparency) or 0.56, 0.35, 0.78)
+        if not state.FrostStroke then
+            local stroke = Instance.new("UIStroke")
+            stroke.Name = "WindUIFrostedEdge"
+            stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            stroke.Thickness = 1
+            stroke.Color = Color3.fromRGB(174, 207, 255)
+            stroke.Transparency = 0.7
+            stroke.Parent = background
+            state.FrostStroke = stroke
+        end
+    end
+    if not state.FrostBlur then
+        local blur = Instance.new("BlurEffect")
+        blur.Name = "WindUIFrostedBlur"
+        blur.Parent = game:GetService("Lighting")
+        state.FrostBlur = blur
+    end
+    state.FrostBlur.Size = math.clamp(tonumber(options.BlurSize) or 8, 0, 16)
+    state.FrostBlur.Enabled = not self.Window.Destroyed and root.Visible
+    if not state.FrostVisibilityConnection then
+        state.FrostVisibilityConnection = root:GetPropertyChangedSignal("Visible"):Connect(function()
+            if state.FrostBlur then
+                state.FrostBlur.Enabled = state.Frosted and root.Visible
+            end
+        end)
     end
     return self
 end
@@ -12639,6 +12711,7 @@ function App:SetBeautyMode(options)
     if options == false then
         local state = getBeautyState(self)
         state.Enabled = false
+        self:SetFrostedGlass(false)
         self:SetLayeredGlass(false)
         self:SetRippleEffect(false)
         self:SetHoverMotion(false)
@@ -12715,6 +12788,8 @@ function App:GetBeautyState()
         Mode = state.Palette.Mode,
         SeedColor = state.Palette.Seed,
         LayeredGlass = state.LayeredGlass,
+        FrostedGlass = state.Frosted,
+        BlurSize = state.FrostBlur and state.FrostBlur.Size or 0,
         Ripple = state.Ripple,
         HoverMotion = state.HoverMotion,
         AmbientGlow = state.AmbientGlow,
@@ -12727,6 +12802,11 @@ function App:_DestroyBeauty()
         return
     end
     state.Destroyed = true
+    if state.FrostVisibilityConnection then
+        state.FrostVisibilityConnection:Disconnect()
+        state.FrostVisibilityConnection = nil
+    end
+    if state.FrostBlur then state.FrostBlur:Destroy(); state.FrostBlur = nil end
     if state.GlowTween then
         state.GlowTween:Cancel()
     end
@@ -13350,7 +13430,7 @@ function ImageSyncPanel:_UpdateStatus()
     self.StatusLabel.Text = #selected > 0 and table.concat(selected, " · ") or "未选择显示部位"
 end
 
-function ImageSyncPanel:_UpdateRegion(name)
+function ImageSyncPanel:_UpdateRegion(name, skipSkeleton)
     local regionButton = self.RegionButtons[name]
     if not regionButton then
         return
@@ -13361,7 +13441,7 @@ function ImageSyncPanel:_UpdateRegion(name)
     if stroke then
         stroke.Transparency = 1
     end
-    self:_UpdateSkeleton()
+    if not skipSkeleton then self:_UpdateSkeleton() end
 end
 
 function ImageSyncPanel:_BuildRegions(regions)
@@ -13398,8 +13478,9 @@ function ImageSyncPanel:_BuildRegions(regions)
         button.MouseButton1Click:Connect(function()
             self.App:SetESPPart(name, not self.PartState[name])
         end)
-        self:_UpdateRegion(name)
+        self:_UpdateRegion(name, true)
     end
+    self:_UpdateSkeleton()
     self:_UpdateStatus()
 end
 
@@ -13614,7 +13695,7 @@ function ImageSyncPanel:SetParts(parts)
         end
     end
     for name in pairs(self.RegionButtons) do
-        self:_UpdateRegion(name)
+        self:_UpdateRegion(name, true)
     end
     self:_UpdateSkeleton()
     self:_UpdateStatus()
@@ -13629,7 +13710,7 @@ function ImageSyncPanel:SetAccentColor(color)
     self.AccentLine.BackgroundColor3 = color
     self.Outline.Color = mixColor(Color3.fromRGB(49, 62, 84), color, 0.22)
     for name in pairs(self.RegionButtons) do
-        self:_UpdateRegion(name)
+        self:_UpdateRegion(name, true)
     end
     self:_UpdateSkeleton()
     return self
@@ -14096,13 +14177,25 @@ function App:On(eventName, callback)
     return self
 end
 function App:Open()
-    return self.Window:Open()
+    local result = self.Window:Open()
+    local state = self._Beauty
+    if state and state.FrostBlur then
+        state.FrostBlur.Enabled = state.Frosted and self.Window.UIElements.Main.Visible
+    end
+    return result
 end
 function App:Close()
+    local state = self._Beauty
+    if state and state.FrostBlur then state.FrostBlur.Enabled = false end
     return self.Window:Close()
 end
 function App:Toggle()
-    return self.Window:Toggle()
+    local result = self.Window:Toggle()
+    local state = self._Beauty
+    if state and state.FrostBlur then
+        state.FrostBlur.Enabled = state.Frosted and self.Window.UIElements.Main.Visible
+    end
+    return result
 end
 function App:Destroy()
     for _, panel in ipairs(self.ImageSyncPanels or {
