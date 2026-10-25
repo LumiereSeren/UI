@@ -10604,12 +10604,16 @@ do
                 end
                 bgFX.layers = {}
                 bgFX.active = false
-            end
             local function bgFXApplyBlur()
                 local host = as.UIElements.Main.Background
                 if not host then return end
                 bgFXDump()
                 local s = bgFX.blurStrength
+                local function addCorner(inst)
+                    local corner = Instance.new("UICorner")
+                    corner.CornerRadius = UDim.new(0, as.UICorner)
+                    corner.Parent = inst
+                end
                 -- 背景图降清晰度: 提透明度
                 if aE and aE:IsA("ImageLabel") then
                     aE.ImageTransparency = 0.15 + s * 0.35
@@ -10623,6 +10627,7 @@ do
                 blur1.BorderSizePixel = 0
                 blur1.ZIndex = host.ZIndex + 1
                 blur1.Parent = host
+                addCorner(blur1)
                 table.insert(bgFX.layers, blur1)
                 -- 磨砂层2: 半透明冷紫(朦胧调)
                 local blur2 = Instance.new("Frame")
@@ -10633,6 +10638,7 @@ do
                 blur2.BorderSizePixel = 0
                 blur2.ZIndex = host.ZIndex + 2
                 blur2.Parent = host
+                addCorner(blur2)
                 table.insert(bgFX.layers, blur2)
                 -- 磨砂层3: 粉紫光晕(玻璃质感)
                 local glow = Instance.new("Frame")
@@ -10643,6 +10649,7 @@ do
                 glow.BorderSizePixel = 0
                 glow.ZIndex = host.ZIndex + 3
                 glow.Parent = host
+                addCorner(glow)
                 table.insert(bgFX.layers, glow)
                 bgFX.active = true
             end
@@ -10650,6 +10657,11 @@ do
                 local host = as.UIElements.Main.Background
                 if not host then return end
                 bgFXDump()
+                local function addCorner(inst)
+                    local corner = Instance.new("UICorner")
+                    corner.CornerRadius = UDim.new(0, as.UICorner)
+                    corner.Parent = inst
+                end
                 -- 毛玻璃: 半透明主色 + 噪声纹理, 模拟 frosted glass
                 local frost = Instance.new("Frame")
                 frost.Name = "FXFrost"
@@ -10659,6 +10671,7 @@ do
                 frost.BorderSizePixel = 0
                 frost.ZIndex = host.ZIndex + 1
                 frost.Parent = host
+                addCorner(frost)
                 table.insert(bgFX.layers, frost)
                 -- 噪声纹理(磨砂颗粒)
                 local noise = Instance.new("ImageLabel")
@@ -10672,8 +10685,10 @@ do
                 noise.BorderSizePixel = 0
                 noise.ZIndex = host.ZIndex + 2
                 noise.Parent = host
+                addCorner(noise)
                 table.insert(bgFX.layers, noise)
                 bgFX.active = true
+            end
             end
             local function bgFXApplyNone()
                 bgFXDump()
