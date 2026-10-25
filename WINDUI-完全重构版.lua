@@ -9643,6 +9643,9 @@ do
                 BackgroundVideoLooped = ar.BackgroundVideoLooped ~= false,
                 BackgroundVideoVolume = math.clamp(tonumber(ar.BackgroundVideoVolume) or 0, 0, 1),
                 BackgroundVideoPlaying = ar.BackgroundVideoPlaying ~= false,
+                BackgroundEffect = ar.BackgroundEffect or "blur",
+                BackgroundBlurStrength = math.clamp(tonumber(ar.BackgroundBlurStrength) or 0.55, 0.05, 0.95),
+                BackgroundFrost = math.clamp(tonumber(ar.BackgroundFrost) or 0.6, 0.1, 0.95),
                 ShadowTransparency = ar.ShadowTransparency or 0.7,
                 User = ar.User or {
                 },
@@ -10578,6 +10581,139 @@ do
             function as.SetBackgroundImage(l, m)
                 as.UIElements.Main.Background.ImageLabel.Image = m
             end
+            -- ===== 背景特效系统: blur(高斯模糊) / frosted(毛玻璃) / none(原版) =====
+            local bgFX = {
+                mode = as.BackgroundEffect or "blur",
+                blurStrength = as.BackgroundBlurStrength or 0.55,
+                frost = as.BackgroundFrost or 0.6,
+                layers = {},
+                connections = {},
+                active = false,
+            }
+            local function bgFXDump()
+                for _, c in ipairs(bgFX.connections) do
+                    pcall(function()
+                        c:Disconnect()
+                    end)
+                end
+                bgFX.connections = {}
+                for _, layer in ipairs(bgFX.layers) do
+                    pcall(function()
+                        layer:Destroy()
+                    end)
+                end
+                bgFX.layers = {}
+                bgFX.active = false
+            end
+            local function bgFXApplyBlur()
+                local host = as.UIElements.Main.Background
+                if not host then return end
+                bgFXDump()
+                local s = bgFX.blurStrength
+                -- 背景图降清晰度: 提透明度
+                if aE and aE:IsA("ImageLabel") then
+                    aE.ImageTransparency = 0.15 + s * 0.35
+                end
+                -- 磨砂层1: 半透明白色散景(雾化细节)
+                local blur1 = Instance.new("Frame")
+                blur1.Name = "FXBlur1"
+                blur1.Size = UDim2.fromScale(1, 1)
+                blur1.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                blur1.BackgroundTransparency = 1 - s * 0.6
+                blur1.BorderSizePixel = 0
+                blur1.ZIndex = host.ZIndex + 1
+                blur1.Parent = host
+                table.insert(bgFX.layers, blur1)
+                -- 磨砂层2: 半透明冷紫(朦胧调)
+                local blur2 = Instance.new("Frame")
+                blur2.Name = "FXBlur2"
+                blur2.Size = UDim2.fromScale(1, 1)
+                blur2.BackgroundColor3 = Color3.fromRGB(24, 14, 56)
+                blur2.BackgroundTransparency = 1 - s * 0.45
+                blur2.BorderSizePixel = 0
+                blur2.ZIndex = host.ZIndex + 2
+                blur2.Parent = host
+                table.insert(bgFX.layers, blur2)
+                -- 磨砂层3: 粉紫光晕(玻璃质感)
+                local glow = Instance.new("Frame")
+                glow.Name = "FXGlow"
+                glow.Size = UDim2.fromScale(1, 1)
+                glow.BackgroundColor3 = Color3.fromRGB(255, 130, 220)
+                glow.BackgroundTransparency = 1 - s * 0.22
+                glow.BorderSizePixel = 0
+                glow.ZIndex = host.ZIndex + 3
+                glow.Parent = host
+                table.insert(bgFX.layers, glow)
+                bgFX.active = true
+            end
+            local function bgFXApplyFrosted()
+                local host = as.UIElements.Main.Background
+                if not host then return end
+                bgFXDump()
+                -- 毛玻璃: 半透明主色 + 噪声纹理, 模拟 frosted glass
+                local frost = Instance.new("Frame")
+                frost.Name = "FXFrost"
+                frost.Size = UDim2.fromScale(1, 1)
+                frost.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                frost.BackgroundTransparency = 1 - bgFX.frost
+                frost.BorderSizePixel = 0
+                frost.ZIndex = host.ZIndex + 1
+                frost.Parent = host
+                table.insert(bgFX.layers, frost)
+                -- 噪声纹理(磨砂颗粒)
+                local noise = Instance.new("ImageLabel")
+                noise.Name = "FXNoise"
+                noise.Size = UDim2.fromScale(1, 1)
+                noise.Image = "rbxassetid://9968344227"
+                noise.ImageTransparency = 1 - bgFX.frost * 0.35
+                noise.ScaleType = Enum.ScaleType.Tile
+                noise.TileSize = UDim2.new(0, 128, 0, 128)
+                noise.BackgroundTransparency = 1
+                noise.BorderSizePixel = 0
+                noise.ZIndex = host.ZIndex + 2
+                noise.Parent = host
+                table.insert(bgFX.layers, noise)
+                bgFX.active = true
+            end
+            local function bgFXApplyNone()
+                bgFXDump()
+                if aE and aE:IsA("ImageLabel") then
+                    aE.ImageTransparency = as.BackgroundImageTransparency or 0
+                end
+            end
+            local bgFXAppliers = {
+                blur = bgFXApplyBlur,
+                frosted = bgFXApplyFrosted,
+                none = bgFXApplyNone,
+            }
+            function as.SetBackgroundEffect(mode)
+                mode = mode or "blur"
+                if not bgFXAppliers[mode] then
+                    mode = "blur"
+                end
+                bgFX.mode = mode
+                bgFXAppliers[mode]()
+                return as
+            end
+            function as.SetBackgroundBlurStrength(v)
+                bgFX.blurStrength = math.clamp(tonumber(v) or 0.55, 0.05, 0.95)
+                if bgFX.mode == "blur" then
+                    bgFXApplyBlur()
+                end
+                return as
+            end
+            function as.SetBackgroundFrost(v)
+                bgFX.frost = math.clamp(tonumber(v) or 0.6, 0.1, 0.95)
+                if bgFX.mode == "frosted" then
+                    bgFXApplyFrosted()
+                end
+                return as
+            end
+            task.spawn(function()
+                task.wait(0.3)
+                bgFXAppliers[bgFX.mode]()
+            end)
+
             function as.SetBackgroundImageTransparency(l, m)
                 if aE and aE:IsA("ImageLabel") then
                     aE.ImageTransparency = math.floor(m * 10 + 0.5) / 10
@@ -11855,6 +11991,24 @@ end
 function App:SetGlassTransparency(value)
     value = math.clamp(tonumber(value) or 0.15, 0, 1)
     self.Window:SetBackgroundTransparency(value)
+    return self
+end
+function App:SetBackgroundEffect(mode)
+    if self.Window and self.Window.SetBackgroundEffect then
+        self.Window:SetBackgroundEffect(mode)
+    end
+    return self
+end
+function App:SetBackgroundBlurStrength(value)
+    if self.Window and self.Window.SetBackgroundBlurStrength then
+        self.Window:SetBackgroundBlurStrength(value)
+    end
+    return self
+end
+function App:SetBackgroundFrost(value)
+    if self.Window and self.Window.SetBackgroundFrost then
+        self.Window:SetBackgroundFrost(value)
+    end
     return self
 end
 function App:SetBackgroundImage(image, transparency)
