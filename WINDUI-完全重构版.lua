@@ -3330,8 +3330,8 @@ do
                     Slider = Color3.fromHex("#2563EB"),
                     Checkbox = Color3.fromHex("#2563EB"),
                 },
-                OrixGlass = {
-                    Name = "OrixGlass",
+                Future = {
+                    Name = "Future",
                     Accent = Color3.fromHex("#8B74C9"),
                     Dialog = Color3.fromHex("#B79BE0"),
                     Outline = Color3.fromHex("#FFFFFF"),
